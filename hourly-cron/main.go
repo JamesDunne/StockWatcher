@@ -8,7 +8,7 @@ import "net/http"
 import "net/url"
 
 // `q` is the YQL query
-func yql(q string, jrsp interface{}) (err error) {
+func yql(jrsp interface{}, q string) (err error) {
 	// form the YQL URL:
 	u := `http://query.yahooapis.com/v1/public/yql?q=` + url.QueryEscape(q) + `&format=json&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys`
 	resp, err := http.Get(u)
@@ -42,24 +42,44 @@ type Quote struct {
 type QuoteResponse struct {
 	Query *struct {
 		Results *struct {
-			Quote *Quote
-		}
-	}
+			Quote *Quote "quote"
+		} "results"
+	} "query"
+}
+
+type Historical struct {
+	Date  string
+	Close string
+}
+
+type HistoricalResponse struct {
+	Query *struct {
+		Results *struct {
+			Quote []*Historical "quote"
+		} "results"
+	} "query"
 }
 
 // main:
 func main() {
 	// get current price of MSFT:
-	jrsp := new(QuoteResponse)
-	err := yql(`select * from yahoo.finance.quote where symbol in ("MSFT")`, jrsp)
+	quot := new(QuoteResponse)
+	err := yql(quot, `select symbol, LastTradePriceOnly from yahoo.finance.quote where symbol in ("MSFT")`)
 	if err != nil {
 		fmt.Print(err)
 		return
 	}
 
-	fmt.Printf("%s\n", *jrsp.Query.Results.Quote)
+	fmt.Printf("%s\n", *quot.Query.Results.Quote)
 
-	// TODO: get historical data:
-	//`select * from yahoo.finance.historicaldata where symbol = "MSFT" and startDate = "2013-12-04" and endDate = "2013-12-06"`
+	// get historical data for MSFT:
+	hist := new(HistoricalResponse)
+	err = yql(hist, `select Date, Close from yahoo.finance.historicaldata where symbol = "MSFT" and startDate = "2013-12-04" and endDate = "2013-12-06"`)
+	if err != nil {
+		fmt.Print(err)
+		return
+	}
+
+	fmt.Printf("%s %s %s\n", *hist.Query.Results.Quote[0], *hist.Query.Results.Quote[1], *hist.Query.Results.Quote[2])
 	return
 }
