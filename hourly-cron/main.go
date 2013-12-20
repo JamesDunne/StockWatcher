@@ -6,6 +6,8 @@ import "encoding/json"
 import "io/ioutil"
 import "net/http"
 import "net/url"
+import "database/sql"
+import _ "github.com/mattn/go-sqlite3"
 
 // `q` is the YQL query
 func yql(jrsp interface{}, q string) (err error) {
@@ -60,13 +62,48 @@ type HistoricalResponse struct {
 	} "query"
 }
 
+func db_create_schema(db *sql.DB) (err error) {
+	_, err = db.Exec(`create table if not exists stock (symbol TEXT UNIQUE, purchase_price NUMERIC, purchase_date TEXT, trailing_stop_percent NUMERIC, last_stop_price NUMERIC)`)
+	if err != nil {
+		return
+	}
+
+	_, err = db.Exec(`create table if not exists stock_history (symbol TEXT, date TEXT, closing_price NUMERIC)`)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
 // main:
 func main() {
+	// using sqlite 3.8.0 release
+	db, err := sql.Open("sqlite3", "stocks.db")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer db.Close()
+
+	// Create our schema:
+	err = db_create_schema(db)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	_, err = db.Query(`select * from stock`)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	// get current price of MSFT:
 	quot := new(QuoteResponse)
-	err := yql(quot, `select symbol, LastTradePriceOnly from yahoo.finance.quote where symbol in ("MSFT")`)
+	err = yql(quot, `select symbol, LastTradePriceOnly from yahoo.finance.quote where symbol in ("MSFT")`)
 	if err != nil {
-		fmt.Print(err)
+		fmt.Println(err)
 		return
 	}
 
@@ -76,7 +113,7 @@ func main() {
 	hist := new(HistoricalResponse)
 	err = yql(hist, `select Date, Close from yahoo.finance.historicaldata where symbol = "MSFT" and startDate = "2013-12-04" and endDate = "2013-12-06"`)
 	if err != nil {
-		fmt.Print(err)
+		fmt.Println(err)
 		return
 	}
 
