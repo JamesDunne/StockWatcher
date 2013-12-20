@@ -138,6 +138,10 @@ func main() {
 	// Query stocks table:
 	stocks := make([]*Stock, 0, 4) // make(type, len, capacity)
 	err = db.Select(&stocks, `select symbol, purchase_price, purchase_date, purchaser_email, trailing_stop_percent, last_stop_price from stock`)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
 	fmt.Printf("%#v\n", *stocks[0])
 
 	// get current price of MSFT:
@@ -148,7 +152,7 @@ func main() {
 		return
 	}
 
-	fmt.Printf("%s\n", *quot.Query.Results.Quote)
+	fmt.Printf("%#v\n", *quot.Query.Results.Quote)
 
 	// get historical data for MSFT:
 	hist := new(HistoricalResponse)
@@ -158,6 +162,6 @@ func main() {
 		return
 	}
 
-	fmt.Printf("%s %s %s\n", *hist.Query.Results.Quote[0], *hist.Query.Results.Quote[1], *hist.Query.Results.Quote[2])
+	fmt.Printf("%#v %#v %#v\n", *hist.Query.Results.Quote[0], *hist.Query.Results.Quote[1], *hist.Query.Results.Quote[2])
 	return
 }
