@@ -8,10 +8,10 @@ import "encoding/json"
 import "io/ioutil"
 import "net/http"
 import "net/url"
+
 import "database/sql"
 import _ "github.com/mattn/go-sqlite3"
-
-//import _ "github.com/jmoiron/sqlx"
+import "github.com/jmoiron/sqlx"
 
 // `q` is the YQL query
 func yql(jrsp interface{}, q string) (err error) {
@@ -72,9 +72,9 @@ type HistoricalResponse struct {
 	} "query"
 }
 
-func db_create_schema() (db *sql.DB, err error) {
+func db_create_schema() (db *sqlx.DB, err error) {
 	// using sqlite 3.8.0 release
-	db, err = sql.Open("sqlite3", "stocks.db")
+	db, err = sqlx.Connect("sqlite3", "stocks.db")
 	if err != nil {
 		db.Close()
 		return
@@ -137,24 +137,7 @@ func main() {
 
 	// Query stocks table:
 	stocks := make([]*Stock, 0, 4) // make(type, len, capacity)
-	rows, err := db.Query(`select symbol, purchase_price, purchase_date, purchaser_email, trailing_stop_percent, last_stop_price from stock`)
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-	// Read rows:
-	{
-		defer rows.Close()
-		for rows.Next() {
-			st := new(Stock)
-			err = rows.Scan(&st.Symbol, &st.PurchasePrice, &st.PurchaseDate, &st.PurchaserEmail, &st.TrailingStopPercent, &st.LastStopPrice)
-			if err != nil {
-				log.Fatal(err)
-				return
-			}
-			stocks = append(stocks, st)
-		}
-	}
+	err = db.Select(&stocks, `select symbol, purchase_price, purchase_date, purchaser_email, trailing_stop_percent, last_stop_price from stock`)
 	fmt.Printf("%#v\n", *stocks[0])
 
 	// get current price of MSFT:
