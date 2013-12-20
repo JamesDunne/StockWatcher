@@ -1,6 +1,8 @@
 package main
 
 import "fmt"
+import "log"
+import _ "errors"
 
 import "encoding/json"
 import "io/ioutil"
@@ -8,6 +10,8 @@ import "net/http"
 import "net/url"
 import "database/sql"
 import _ "github.com/mattn/go-sqlite3"
+
+//import _ "github.com/jmoiron/sqlx"
 
 // `q` is the YQL query
 func yql(jrsp interface{}, q string) (err error) {
@@ -22,6 +26,12 @@ func yql(jrsp interface{}, q string) (err error) {
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
+		return
+	}
+
+	// Need a 200 response
+	if resp.StatusCode != 200 {
+		err = fmt.Errorf("%s", resp.Status)
 		return
 	}
 
@@ -62,48 +72,96 @@ type HistoricalResponse struct {
 	} "query"
 }
 
-func db_create_schema(db *sql.DB) (err error) {
-	_, err = db.Exec(`create table if not exists stock (symbol TEXT UNIQUE, purchase_price NUMERIC, purchase_date TEXT, trailing_stop_percent NUMERIC, last_stop_price NUMERIC)`)
+func db_create_schema() (db *sql.DB, err error) {
+	// using sqlite 3.8.0 release
+	db, err = sql.Open("sqlite3", "stocks.db")
 	if err != nil {
+		db.Close()
 		return
 	}
 
-	_, err = db.Exec(`create table if not exists stock_history (symbol TEXT, date TEXT, closing_price NUMERIC)`)
+	_, err = db.Exec(`
+create table if not exists stock (
+	symbol TEXT UNIQUE NOT NULL,
+	purchase_price TEXT NOT NULL,
+	purchase_date TEXT NOT NULL,
+	purchaser_email TEXT NOT NULL,
+	trailing_stop_percent TEXT NOT NULL,
+	last_stop_price TEXT
+)`)
 	if err != nil {
+		db.Close()
 		return
 	}
+
+	_, err = db.Exec(`
+create table if not exists stock_history (
+	symbol TEXT NOT NULL,
+	date TEXT NOT NULL,
+	closing_price TEXT NOT NULL
+)`)
+	if err != nil {
+		db.Close()
+		return
+	}
+
+	// Add some test data:
+	_, err = db.Exec(`
+insert into stock  (symbol, purchase_price, purchase_date, purchaser_email, trailing_stop_percent, last_stop_price)
+ 			values ('MSFT', '40.00', '2013-12-01', 'email@example.org', '20.00', NULL)
+`)
+	// ignore non-unique symbol error
+	err = nil
 
 	return
 }
 
+type Stock struct {
+	Symbol              string         `db:"symbol"`
+	PurchasePrice       string         `db:"purchase_price"`
+	PurchaseDate        string         `db:"purchase_date"`
+	PurchaserEmail      string         `db:"purchaser_email"`
+	TrailingStopPercent string         `db:"trailing_stop_percent"`
+	LastStopPrice       sql.NullString `db:"last_stop_price"`
+}
+
 // main:
 func main() {
-	// using sqlite 3.8.0 release
-	db, err := sql.Open("sqlite3", "stocks.db")
+	// Create our DB schema:
+	db, err := db_create_schema()
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 		return
 	}
 	defer db.Close()
 
-	// Create our schema:
-	err = db_create_schema(db)
+	// Query stocks table:
+	stocks := make([]*Stock, 0, 4) // make(type, len, capacity)
+	rows, err := db.Query(`select symbol, purchase_price, purchase_date, purchaser_email, trailing_stop_percent, last_stop_price from stock`)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 		return
 	}
-
-	_, err = db.Query(`select * from stock`)
-	if err != nil {
-		fmt.Println(err)
-		return
+	// Read rows:
+	{
+		defer rows.Close()
+		for rows.Next() {
+			st := new(Stock)
+			err = rows.Scan(&st.Symbol, &st.PurchasePrice, &st.PurchaseDate, &st.PurchaserEmail, &st.TrailingStopPercent, &st.LastStopPrice)
+			if err != nil {
+				log.Fatal(err)
+				return
+			}
+			stocks = append(stocks, st)
+		}
 	}
+	fmt.Printf("%#v\n", *stocks[0])
 
 	// get current price of MSFT:
 	quot := new(QuoteResponse)
 	err = yql(quot, `select symbol, LastTradePriceOnly from yahoo.finance.quote where symbol in ("MSFT")`)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 		return
 	}
 
@@ -113,7 +171,7 @@ func main() {
 	hist := new(HistoricalResponse)
 	err = yql(hist, `select Date, Close from yahoo.finance.historicaldata where symbol = "MSFT" and startDate = "2013-12-04" and endDate = "2013-12-06"`)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 		return
 	}
 
