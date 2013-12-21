@@ -20,6 +20,7 @@ import "encoding/json"
 import "io/ioutil"
 import "net/http"
 import "net/url"
+import "net/mail"
 import "net/smtp"
 
 import "database/sql"
@@ -341,8 +342,31 @@ from stock_track as s`); err != nil {
 
 		if currPrice.Cmp(stopPrice) <= 0 {
 			// Current price has fallen below stopping price!
+
+			// TODO(jsd): check DB to see if notification already sent!
+
 			fmt.Println("  ALERT!")
-			if err = smtp.SendMail("localhost:25", nil, "notification@bittwiddlers.org", []string{st.PurchaserEmail}, []byte("Testing.")); err != nil {
+			from := mail.Address{st.Symbol + "-watcher", "stock.watcher." + st.Symbol + "@bittwiddlers.org"}
+			to := mail.Address{st.PurchaserEmail, st.PurchaserEmail}
+			subject := st.Symbol + " price fell below " + stopPrice.FloatString(2)
+			body := fmt.Sprintf(`<html><body>%s current price %s just fell below stop price %s</body></html>`, st.Symbol, currPrice.FloatString(2), stopPrice.FloatString(2))
+
+			// make header map:
+			header := make(map[string]string)
+			header["From"] = from.String()
+			header["To"] = to.String()
+			header["Subject"] = subject
+			header["Date"] = time.Now().In(nyLoc).Format(time.RFC1123Z)
+			header["Content-Type"] = `text/html; charset="UTF-8"`
+
+			// setup the message:
+			message := ""
+			for k, v := range header {
+				message += fmt.Sprintf("%s: %s\r\n", k, v)
+			}
+			message += "\r\n" + body
+
+			if err = smtp.SendMail("localhost:25", nil, from.Address, []string{to.Address}, []byte(message)); err != nil {
 				log.Println(err)
 			}
 		}
