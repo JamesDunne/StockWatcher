@@ -1,3 +1,11 @@
+/*	StockWatcher
+	James Dunne
+	https://github.com/JamesDunne/StockWatcher
+
+	This program is an hourly cron job to watch a set of stocks and notify the
+	owner via email if the price drops below (100 - N) percent of the highest
+	historical closing price.
+*/
 package main
 
 import "fmt"
@@ -12,10 +20,52 @@ import "encoding/json"
 import "io/ioutil"
 import "net/http"
 import "net/url"
+import "net/smtp"
 
 import "database/sql"
 import _ "github.com/mattn/go-sqlite3"
 import "github.com/jmoiron/sqlx"
+
+// ------------- Utility functions:
+
+// remove the time component of a datetime to get just a date at 00:00:00
+func toDate(t time.Time) time.Time {
+	hour, min, sec := t.Clock()
+	nano := t.Nanosecond()
+
+	d := time.Duration(-(uint64(nano) + uint64(sec)*uint64(time.Second) + uint64(min)*uint64(time.Minute) + uint64(hour)*uint64(time.Hour)))
+	return t.Add(d)
+}
+
+// Converts a string into a `*big.Rat` which is an arbitrary precision rational number stored in decimal format
+func toRat(v string) *big.Rat {
+	rat := new(big.Rat)
+	rat.SetString(v)
+	return rat
+}
+
+// Gets a single scalar value from a DB query:
+func dbGetScalar(db *sqlx.DB, query string, args ...interface{}) (value interface{}, err error) {
+	// Call QueryRowx to get a raw Row result:
+	row := db.QueryRowx(query, args...)
+	if err = row.Err(); err != nil {
+		return
+	}
+
+	// Slice the row up into columns:
+	slice, err := row.SliceScan()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(slice) == 0 {
+		return nil, nil
+	}
+
+	return slice[0], nil
+}
+
+// ------------- YQL functions:
 
 // Head to http://developer.yahoo.com/yql/console/?q=select%20*%20from%20yahoo.finance.quote%20where%20symbol%20in%20(%22YHOO%22%2C%22AAPL%22%2C%22GOOG%22%2C%22MSFT%22)&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys
 // to understand this JSON structure.
@@ -78,6 +128,8 @@ func yql(jrsp interface{}, q string) (err error) {
 	err = json.Unmarshal(body, jrsp)
 	return
 }
+
+// ------------- sqlite3 functions:
 
 func db_create_schema(path string) (db *sqlx.DB, err error) {
 	// using sqlite 3.8.0 release
@@ -151,22 +203,8 @@ type dbStockHistory struct {
 	ClosingPrice string `db:"closing_price"`
 }
 
-// remove the time component of a datetime to get just a date at 00:00:00
-func toDate(t time.Time) time.Time {
-	hour, min, sec := t.Clock()
-	nano := t.Nanosecond()
+// ------------- main:
 
-	d := time.Duration(-(uint64(nano) + uint64(sec)*uint64(time.Second) + uint64(min)*uint64(time.Minute) + uint64(hour)*uint64(time.Hour)))
-	return t.Add(d)
-}
-
-func toRat(v string) *big.Rat {
-	rat := new(big.Rat)
-	rat.SetString(v)
-	return rat
-}
-
-// main:
 func main() {
 	const dbPath = "./stocks.db"
 	const dateFmt = "2006-01-02"
@@ -179,7 +217,7 @@ func main() {
 	//os.Remove(dbPath)
 	db, err := db_create_schema(dbPath)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalln(err)
 		return
 	}
 	defer db.Close()
@@ -189,14 +227,16 @@ func main() {
 	if err = db.Select(&stocks, `
 select s.symbol, s.purchase_price, s.purchase_date, s.purchaser_email, s.trailing_stop_percent
 from stock_track as s`); err != nil {
-		log.Fatal(err)
+		log.Fatalln(err)
 	}
 
 	now := time.Now()
-	fmt.Print("Stocks:\n")
+	fmt.Print("\n")
 	for _, st := range stocks {
-		fmt.Printf("  %#v\n", st)
-		fmt.Printf("  %s\n", st.Symbol)
+		//fmt.Printf("  %#v\n", st)
+
+		purchaseDate, _ := time.Parse(dateFmt, st.PurchaseDate)
+		fmt.Printf("'%s' purchased by <%s> on %s for %s\n", st.Symbol, st.PurchaserEmail, purchaseDate.Format(dateFmt), toRat(st.PurchasePrice).FloatString(2))
 
 		// Stock times/dates are in NYC timezone:
 		yesterday := toDate(now.Add(time.Duration(time.Hour * 24 * -1)).In(nyLoc))
@@ -227,18 +267,20 @@ where date(h.closing_date) = (select max(date(closing_date)) from stock_history 
 		fmt.Printf("  Yesterday's date:  %s\n", lastDate.Format(dateFmt))
 		fmt.Printf("  Last date fetched: %s\n", lastDate.Format(dateFmt))
 		if lastDate.Before(yesterday) {
-			// TODO(jsd): YQL parameter escaping!
-
 			// Fetch the last few days' worth of data:
 			fmt.Printf("  Fetching historical data since %s...\n", lastDate.Format(dateFmt))
+
+			// TODO(jsd): YQL parameter escaping!
+			yqlHistQuery := `select Date, Close from yahoo.finance.historicaldata where symbol = "` + st.Symbol + `" and startDate = "` + lastDate.Format(dateFmt) + `" and endDate = "` + yesterday.Format(dateFmt) + `"`
+
 			hist := new(HistoricalResponse)
-			if err = yql(hist, `select Date, Close from yahoo.finance.historicaldata where symbol = "`+st.Symbol+`" and startDate = "`+lastDate.Format(dateFmt)+`" and endDate = "`+yesterday.Format(dateFmt)+`"`); err != nil {
+			if err = yql(hist, yqlHistQuery); err != nil {
 				log.Println(err)
 				continue
 			}
 			fmt.Printf("  Fetched.\n")
 
-			// Insert historical records:
+			// Insert historical records into the DB:
 			fmt.Printf("  Recording...\n")
 			for _, value := range hist.Query.Results.Quote {
 				// Store dates as RFC3339 in the NYC timezone:
@@ -248,33 +290,56 @@ where date(h.closing_date) = (select max(date(closing_date)) from stock_history 
 					continue
 				}
 
-				// Insert the history record:
+				// Insert the history record; log any errors:
 				db.Execl(`insert into stock_history (symbol, closing_date, closing_price) values (?,?,?)`, st.Symbol, date.Format(time.RFC3339), value.Close)
 			}
 			fmt.Printf("  Recorded.\n")
 		}
 
 		// Get the current stock price:
-		fmt.Printf("  Fetching current trading price...\n")
-		quot := new(QuoteResponse)
-		err = yql(quot, `select LastTradePriceOnly from yahoo.finance.quote where symbol = "`+st.Symbol+`"`)
-		if err != nil {
-			log.Println(err)
-			continue
+		var currPrice *big.Rat
+		// TODO(jsd): Disable this `if false` business for release.
+		if false {
+			fmt.Printf("  Fetching current trading price...\n")
+			quot := new(QuoteResponse)
+			err = yql(quot, `select LastTradePriceOnly from yahoo.finance.quote where symbol = "`+st.Symbol+`"`)
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+			fmt.Printf("  Fetched.\n")
+
+			currPrice = toRat(quot.Query.Results.Quote.LastTradePriceOnly)
+		} else {
+			// HACK(jsd): Useful for testing
+			currPrice = toRat("29.00")
 		}
 
-		// Work with prices in `big.Rat` types (arbitrary precision rational numbers):
-		currPrice := toRat(quot.Query.Results.Quote.LastTradePriceOnly)
-		fmt.Printf("  Fetched current trading price: %s\n", currPrice.FloatString(2))
+		// Determine the highest closing price from historical data:
+		// TODO(jsd): Limited date range for max()?
+		highestClosingPriceStr, err := dbGetScalar(db, `select max(cast(closing_price as real)) from stock_history where symbol = ?`, st.Symbol)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				continue
+			}
+			log.Fatalln(err)
+			return
+		}
+		highestPrice := toRat(highestClosingPriceStr.(string))
 
-		yesterdayPrice := toRat(lastDateRec.ClosingPrice)
-		fmt.Printf("  Yesterday's close price:       %s\n", yesterdayPrice.FloatString(2))
+		// stopPrice = ((100 - stopPercent) * 0.01) * highestPrice
+		stopPrice := new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Sub(toRat("100"), toRat(st.TrailingStopPercent)), toRat("0.01"))), highestPrice)
 
-		stopPrice := new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Sub(toRat("100"), toRat(st.TrailingStopPercent)), toRat("0.01"))), yesterdayPrice)
-		fmt.Printf("  Stopping price:                %s\n", stopPrice.FloatString(2))
+		fmt.Printf("  Highest closing price: %s\n", highestPrice.FloatString(2))
+		fmt.Printf("  Stopping price:        %s\n", stopPrice.FloatString(2))
+		fmt.Printf("  Current price:         %s\n", currPrice.FloatString(2))
+
 		if currPrice.Cmp(stopPrice) <= 0 {
 			// Current price has fallen below stopping price!
-			fmt.Println("  FAIL!")
+			fmt.Println("  ALERT!")
+			if err = smtp.SendMail("localhost:25", nil, "notification@bittwiddlers.org", []string{st.PurchaserEmail}, []byte("Testing.")); err != nil {
+				log.Println(err)
+			}
 		}
 	}
 
