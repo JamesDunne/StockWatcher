@@ -3,13 +3,14 @@ package main
 import "fmt"
 import "log"
 import _ "errors"
+import "os"
 
 import "encoding/json"
 import "io/ioutil"
 import "net/http"
 import "net/url"
 
-import "database/sql"
+import _ "database/sql"
 import _ "github.com/mattn/go-sqlite3"
 import "github.com/jmoiron/sqlx"
 
@@ -73,61 +74,66 @@ type HistoricalResponse struct {
 	} "query"
 }
 
-func db_create_schema() (db *sqlx.DB, err error) {
+func db_create_schema(path string) (db *sqlx.DB, err error) {
 	// using sqlite 3.8.0 release
-	db, err = sqlx.Connect("sqlite3", "stocks.db")
+	db, err = sqlx.Connect("sqlite3", path)
 	if err != nil {
 		db.Close()
 		return
 	}
 
-	_, err = db.Exec(`
-create table if not exists stock (
-	symbol TEXT UNIQUE NOT NULL,
+	if _, err = db.Exec(`
+create table if not exists stock_track (
+	symbol TEXT NOT NULL,
 	purchase_price TEXT NOT NULL,
 	purchase_date TEXT NOT NULL,
 	purchaser_email TEXT NOT NULL,
-	trailing_stop_percent TEXT NOT NULL,
-	last_stop_price TEXT
-)`)
-	if err != nil {
+	trailing_stop_percent TEXT NOT NULL
+)`); err != nil {
 		db.Close()
 		return
 	}
 
-	_, err = db.Exec(`
+	if _, err = db.Exec(`
 create table if not exists stock_history (
 	symbol TEXT NOT NULL,
 	date TEXT NOT NULL,
 	closing_price TEXT NOT NULL
-)`)
-	if err != nil {
+)`); err != nil {
 		db.Close()
 		return
 	}
 
 	// Add some test data:
-	db.Exec(`
-insert into stock  (symbol, purchase_price, purchase_date, purchaser_email, trailing_stop_percent, last_stop_price)
- 			values ('MSFT', '40.00', '2013-12-01', 'email@example.org', '20.00', NULL)
+	db.Execl(`
+insert into stock_track (symbol, purchase_price, purchase_date, purchaser_email, trailing_stop_percent)
+            values ('MSFT', '30.00', '2013-12-01', 'email@example.org', '20.00')
+`)
+	db.Execl(`
+insert into stock_history (symbol, date, closing_price)
+            values        ('MSFT', '2013-12-20', '36.80')
 `)
 
 	return
 }
 
-type Stock struct {
-	Symbol              string         `db:"symbol"`
-	PurchasePrice       string         `db:"purchase_price"`
-	PurchaseDate        string         `db:"purchase_date"`
-	PurchaserEmail      string         `db:"purchaser_email"`
-	TrailingStopPercent string         `db:"trailing_stop_percent"`
-	LastStopPrice       sql.NullString `db:"last_stop_price"`
+type dbStockPrice struct {
+	Symbol              string `db:"symbol"`
+	PurchasePrice       string `db:"purchase_price"`
+	PurchaseDate        string `db:"purchase_date"`
+	PurchaserEmail      string `db:"purchaser_email"`
+	TrailingStopPercent string `db:"trailing_stop_percent"`
+	LastCloseDate       string `db:"closing_date"`
+	LastClosePrice      string `db:"closing_price"`
 }
 
 // main:
 func main() {
-	// Create our DB schema:
-	db, err := db_create_schema()
+	const dbPath = "./stocks.db"
+
+	// Create our DB file and its schema:
+	os.Remove(dbPath)
+	db, err := db_create_schema(dbPath)
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -135,17 +141,27 @@ func main() {
 	defer db.Close()
 
 	// Query stocks table:
-	stocks := make([]Stock, 0, 4) // make(type, len, capacity)
-	err = db.Select(&stocks, `select symbol, purchase_price, purchase_date, purchaser_email, trailing_stop_percent, last_stop_price from stock`)
-	if err != nil {
+	stocks := make([]dbStockPrice, 0, 4) // make(type, len, capacity)
+	if err = db.Select(&stocks, `
+select s.symbol, s.purchase_price, s.purchase_date, s.purchaser_email, s.trailing_stop_percent, h.date as closing_date, h.closing_price
+from stock_track as s
+left join stock_history as h on h.symbol = s.symbol and h.date = (select max(date) from stock_history where symbol = s.symbol)
+`); err != nil {
 		log.Fatal(err)
-		return
 	}
-	fmt.Printf("%#v\n", stocks[0])
+
+	for i, value := range stocks {
+		if i == 0 {
+			fmt.Printf("%#v", value)
+		} else {
+			fmt.Printf(", %#v", value)
+		}
+	}
+	fmt.Println()
 
 	// get current price of MSFT:
 	quot := new(QuoteResponse)
-	err = yql(quot, `select symbol, LastTradePriceOnly from yahoo.finance.quote where symbol in ("MSFT")`)
+	err = yql(quot, `select Symbol, LastTradePriceOnly from yahoo.finance.quote where symbol in ("MSFT")`)
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -155,12 +171,18 @@ func main() {
 
 	// get historical data for MSFT:
 	hist := new(HistoricalResponse)
-	err = yql(hist, `select Date, Close from yahoo.finance.historicaldata where symbol = "MSFT" and startDate = "2013-12-04" and endDate = "2013-12-06"`)
-	if err != nil {
+	if err = yql(hist, `select Date, Close from yahoo.finance.historicaldata where symbol = "MSFT" and startDate = "2013-12-16" and endDate = "2013-12-20"`); err != nil {
 		log.Fatal(err)
 		return
 	}
 
-	fmt.Printf("%#v %#v %#v\n", *hist.Query.Results.Quote[0], *hist.Query.Results.Quote[1], *hist.Query.Results.Quote[2])
+	for i, value := range hist.Query.Results.Quote {
+		if i == 0 {
+			fmt.Printf("%#v", *value)
+		} else {
+			fmt.Printf(", %#v", *value)
+		}
+	}
+	fmt.Println()
 	return
 }
