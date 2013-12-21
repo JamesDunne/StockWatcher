@@ -5,6 +5,7 @@ import "log"
 import _ "errors"
 
 //import "os"
+import "math/big"
 
 import "time"
 import "encoding/json"
@@ -89,10 +90,20 @@ func db_create_schema(path string) (db *sqlx.DB, err error) {
 	if _, err = db.Exec(`
 create table if not exists stock_track (
 	symbol TEXT NOT NULL,
+	purchaser_email TEXT NOT NULL,
 	purchase_price TEXT NOT NULL,
 	purchase_date TEXT NOT NULL,
-	purchaser_email TEXT NOT NULL,
-	trailing_stop_percent TEXT NOT NULL
+	trailing_stop_percent TEXT NOT NULL,
+	CONSTRAINT stock_track_pk PRIMARY KEY (symbol, purchaser_email)
+)`); err != nil {
+		db.Close()
+		return
+	}
+
+	if _, err = db.Exec(`
+create index if not exists stock_track_ix on stock_track (
+	symbol ASC,
+	purchaser_email ASC
 )`); err != nil {
 		db.Close()
 		return
@@ -102,7 +113,17 @@ create table if not exists stock_track (
 create table if not exists stock_history (
 	symbol TEXT NOT NULL,
 	closing_date TEXT NOT NULL,
-	closing_price TEXT NOT NULL
+	closing_price TEXT NOT NULL,
+	CONSTRAINT stock_history_pk PRIMARY KEY (symbol, closing_date)
+)`); err != nil {
+		db.Close()
+		return
+	}
+
+	if _, err = db.Exec(`
+create index if not exists stock_history_ix on stock_history (
+	symbol ASC,
+	closing_date DESC
 )`); err != nil {
 		db.Close()
 		return
@@ -110,9 +131,8 @@ create table if not exists stock_history (
 
 	// Add some test data:
 	db.Execl(`
-insert into stock_track (symbol, purchase_price, purchase_date, purchaser_email, trailing_stop_percent)
-            values ('MSFT', '30.00', '2013-12-01', 'email@example.org', '20.00')
-`)
+insert or ignore into stock_track (symbol, purchaser_email, purchase_price, purchase_date, trailing_stop_percent)
+            values ('MSFT', 'email@example.org', '30.00', '2013-12-01', '20.00')`)
 
 	return
 }
@@ -140,6 +160,12 @@ func toDate(t time.Time) time.Time {
 	return t.Add(d)
 }
 
+func toRat(v string) *big.Rat {
+	rat := new(big.Rat)
+	rat.SetString(v)
+	return rat
+}
+
 // main:
 func main() {
 	const dbPath = "./stocks.db"
@@ -147,7 +173,7 @@ func main() {
 
 	// Get the New York location for stock timezone:
 	nyLoc, _ := time.LoadLocation("America/New_York")
-	fmt.Println(nyLoc)
+	//fmt.Println(nyLoc)
 
 	// Create our DB file and its schema:
 	//os.Remove(dbPath)
@@ -177,8 +203,8 @@ from stock_track as s`); err != nil {
 
 		// Determine the last-fetched date for the stock:
 		var lastDate time.Time
-		rec := new(dbStockHistory)
-		err = db.Get(rec, `
+		lastDateRec := new(dbStockHistory)
+		err = db.Get(lastDateRec, `
 select h.symbol, h.closing_date, h.closing_price
 from stock_history as h
 where date(h.closing_date) = (select max(date(closing_date)) from stock_history where symbol = h.symbol)
@@ -191,7 +217,7 @@ where date(h.closing_date) = (select max(date(closing_date)) from stock_history 
 			continue
 		} else {
 			// Extract the last-fetched date from the db record in NYC time:
-			lastDate, _ = time.ParseInLocation(time.RFC3339, rec.ClosingDate, nyLoc)
+			lastDate, _ = time.ParseInLocation(time.RFC3339, lastDateRec.ClosingDate, nyLoc)
 			lastDate = toDate(lastDate)
 		}
 		//fmt.Println(yesterday.Format("2006-01-02 15:04:05 -0700"))
@@ -201,11 +227,10 @@ where date(h.closing_date) = (select max(date(closing_date)) from stock_history 
 		fmt.Printf("  Yesterday's date:  %s\n", lastDate.Format(dateFmt))
 		fmt.Printf("  Last date fetched: %s\n", lastDate.Format(dateFmt))
 		if lastDate.Before(yesterday) {
-			fmt.Printf("  Fetching data since %s...\n", lastDate.Format(dateFmt))
-
 			// TODO(jsd): YQL parameter escaping!
 
 			// Fetch the last few days' worth of data:
+			fmt.Printf("  Fetching historical data since %s...\n", lastDate.Format(dateFmt))
 			hist := new(HistoricalResponse)
 			if err = yql(hist, `select Date, Close from yahoo.finance.historicaldata where symbol = "`+st.Symbol+`" and startDate = "`+lastDate.Format(dateFmt)+`" and endDate = "`+yesterday.Format(dateFmt)+`"`); err != nil {
 				log.Println(err)
@@ -230,23 +255,28 @@ where date(h.closing_date) = (select max(date(closing_date)) from stock_history 
 		}
 
 		// Get the current stock price:
+		fmt.Printf("  Fetching current trading price...\n")
 		quot := new(QuoteResponse)
 		err = yql(quot, `select LastTradePriceOnly from yahoo.finance.quote where symbol = "`+st.Symbol+`"`)
 		if err != nil {
 			log.Println(err)
 			continue
 		}
+
+		// Work with prices in `big.Rat` types (arbitrary precision rational numbers):
+		currPrice := toRat(quot.Query.Results.Quote.LastTradePriceOnly)
+		fmt.Printf("  Fetched current trading price: %s\n", currPrice.FloatString(2))
+
+		yesterdayPrice := toRat(lastDateRec.ClosingPrice)
+		fmt.Printf("  Yesterday's close price:       %s\n", yesterdayPrice.FloatString(2))
+
+		stopPrice := new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Sub(toRat("100"), toRat(st.TrailingStopPercent)), toRat("0.01"))), yesterdayPrice)
+		fmt.Printf("  Stopping price:                %s\n", stopPrice.FloatString(2))
+		if currPrice.Cmp(stopPrice) <= 0 {
+			// Current price has fallen below stopping price!
+			fmt.Println("  FAIL!")
+		}
 	}
-
-	//// get current price of MSFT:
-	//quot := new(QuoteResponse)
-	//err = yql(quot, `select Symbol, LastTradePriceOnly from yahoo.finance.quote where symbol in ("MSFT")`)
-	//if err != nil {
-	//	log.Fatal(err)
-	//	return
-	//}
-
-	//fmt.Printf("%#v\n", quot.Query)
 
 	return
 }
