@@ -24,14 +24,15 @@ func yql(jrsp interface{}, q string) (err error) {
 
 	// read body:
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
+
+	// Need a 200 response:
+	if resp.StatusCode != 200 {
+		err = fmt.Errorf("%s", resp.Status)
 		return
 	}
 
-	// Need a 200 response
-	if resp.StatusCode != 200 {
-		err = fmt.Errorf("%s", resp.Status)
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
 		return
 	}
 
@@ -106,12 +107,10 @@ create table if not exists stock_history (
 	}
 
 	// Add some test data:
-	_, err = db.Exec(`
+	db.Exec(`
 insert into stock  (symbol, purchase_price, purchase_date, purchaser_email, trailing_stop_percent, last_stop_price)
  			values ('MSFT', '40.00', '2013-12-01', 'email@example.org', '20.00', NULL)
 `)
-	// ignore non-unique symbol error
-	err = nil
 
 	return
 }
@@ -136,13 +135,13 @@ func main() {
 	defer db.Close()
 
 	// Query stocks table:
-	stocks := make([]*Stock, 0, 4) // make(type, len, capacity)
+	stocks := make([]Stock, 0, 4) // make(type, len, capacity)
 	err = db.Select(&stocks, `select symbol, purchase_price, purchase_date, purchaser_email, trailing_stop_percent, last_stop_price from stock`)
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
-	fmt.Printf("%#v\n", *stocks[0])
+	fmt.Printf("%#v\n", stocks[0])
 
 	// get current price of MSFT:
 	quot := new(QuoteResponse)
