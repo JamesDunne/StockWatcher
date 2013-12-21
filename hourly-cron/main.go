@@ -3,7 +3,8 @@ package main
 import "fmt"
 import "log"
 import _ "errors"
-import "os"
+
+//import "os"
 
 import "time"
 import "encoding/json"
@@ -142,12 +143,14 @@ func toDate(t time.Time) time.Time {
 // main:
 func main() {
 	const dbPath = "./stocks.db"
+	const dateFmt = "2006-01-02"
 
 	// Get the New York location for stock timezone:
 	nyLoc, _ := time.LoadLocation("America/New_York")
+	fmt.Println(nyLoc)
 
 	// Create our DB file and its schema:
-	os.Remove(dbPath)
+	//os.Remove(dbPath)
 	db, err := db_create_schema(dbPath)
 	if err != nil {
 		log.Fatal(err)
@@ -159,55 +162,81 @@ func main() {
 	stocks := make([]dbStock, 0, 4) // make(type, len, capacity)
 	if err = db.Select(&stocks, `
 select s.symbol, s.purchase_price, s.purchase_date, s.purchaser_email, s.trailing_stop_percent
-from stock_track as s
-`); err != nil {
+from stock_track as s`); err != nil {
 		log.Fatal(err)
 	}
 
+	now := time.Now()
 	fmt.Print("Stocks:\n")
 	for _, st := range stocks {
 		fmt.Printf("  %#v\n", st)
+		fmt.Printf("  %s\n", st.Symbol)
+
+		// Stock times/dates are in NYC timezone:
+		yesterday := toDate(now.Add(time.Duration(time.Hour * 24 * -1)).In(nyLoc))
 
 		// Determine the last-fetched date for the stock:
+		var lastDate time.Time
 		rec := new(dbStockHistory)
 		err = db.Get(rec, `
 select h.symbol, h.closing_date, h.closing_price
 from stock_history as h
 where date(h.closing_date) = (select max(date(closing_date)) from stock_history where symbol = h.symbol)
-  and h.symbol = ?
-`, st.Symbol)
-
-		var lastDate time.Time
+  and h.symbol = ?`, st.Symbol)
 		if err == sql.ErrNoRows {
 			// No row; use 7 days ago in NYC time:
-			lastDate = toDate(time.Now().Add(time.Duration(time.Hour * 24 * -7)).In(nyLoc))
+			lastDate = toDate(now.Add(time.Duration(time.Hour * 24 * -7)).In(nyLoc))
 		} else if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			continue
 		} else {
 			// Extract the last-fetched date from the db record in NYC time:
 			lastDate, _ = time.ParseInLocation(time.RFC3339, rec.ClosingDate, nyLoc)
 			lastDate = toDate(lastDate)
 		}
-		fmt.Println(lastDate.Format("2006-01-02 15:04:05 -0700"))
+		//fmt.Println(yesterday.Format("2006-01-02 15:04:05 -0700"))
+		//fmt.Println(lastDate.Format("2006-01-02 15:04:05 -0700"))
 
+		// Fetch the last few days' worth of historical data if we need to:
+		fmt.Printf("  Yesterday's date:  %s\n", lastDate.Format(dateFmt))
+		fmt.Printf("  Last date fetched: %s\n", lastDate.Format(dateFmt))
+		if lastDate.Before(yesterday) {
+			fmt.Printf("  Fetching data since %s...\n", lastDate.Format(dateFmt))
+
+			// TODO(jsd): YQL parameter escaping!
+
+			// Fetch the last few days' worth of data:
+			hist := new(HistoricalResponse)
+			if err = yql(hist, `select Date, Close from yahoo.finance.historicaldata where symbol = "`+st.Symbol+`" and startDate = "`+lastDate.Format(dateFmt)+`" and endDate = "`+yesterday.Format(dateFmt)+`"`); err != nil {
+				log.Println(err)
+				continue
+			}
+			fmt.Printf("  Fetched.\n")
+
+			// Insert historical records:
+			fmt.Printf("  Recording...\n")
+			for _, value := range hist.Query.Results.Quote {
+				// Store dates as RFC3339 in the NYC timezone:
+				date, err := time.ParseInLocation(dateFmt, value.Date, nyLoc)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+
+				// Insert the history record:
+				db.Execl(`insert into stock_history (symbol, closing_date, closing_price) values (?,?,?)`, st.Symbol, date.Format(time.RFC3339), value.Close)
+			}
+			fmt.Printf("  Recorded.\n")
+		}
+
+		// Get the current stock price:
+		quot := new(QuoteResponse)
+		err = yql(quot, `select LastTradePriceOnly from yahoo.finance.quote where symbol = "`+st.Symbol+`"`)
+		if err != nil {
+			log.Println(err)
+			continue
+		}
 	}
-	fmt.Println()
-
-	//// get historical data for MSFT:
-	//hist := new(HistoricalResponse)
-	//if err = yql(hist, `select Date, Close from yahoo.finance.historicaldata where symbol = "MSFT" and startDate = "2013-12-16" and endDate = "2013-12-20"`); err != nil {
-	//	log.Fatal(err)
-	//	return
-	//}
-
-	//for i, value := range hist.Query.Results.Quote {
-	//	if i == 0 {
-	//		fmt.Printf("%#v", value)
-	//	} else {
-	//		fmt.Printf(", %#v", value)
-	//	}
-	//}
-	//fmt.Println()
 
 	//// get current price of MSFT:
 	//quot := new(QuoteResponse)
