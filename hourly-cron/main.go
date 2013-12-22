@@ -94,6 +94,7 @@ func main() {
 	dbutil.Tx(db, func(tx *sqlx.Tx) (err error) {
 		db.Execl(`insert or ignore into User (Email, Name, NotificationTimeout) values ('example@example.org', 'Example User', 15)`)
 		db.Execl(`insert or ignore into StockOwned (UserID, Symbol, IsStopEnabled, PurchaseDate, PurchasePrice, StopPercent) values (1, 'MSFT', 1, '2012-09-01', '30.00', '0.1');`)
+		db.Execl(`insert or ignore into StockOwned (UserID, Symbol, IsStopEnabled, PurchaseDate, PurchasePrice, StopPercent) values (1, 'AAPL', 1, '2012-09-01', '400.00', '20.0');`)
 		return nil
 	})
 

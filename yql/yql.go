@@ -51,9 +51,14 @@ func yqlExtractResponse(body []byte, results interface{}, structType reflect.Typ
 
 	// Decode the Results map as either an array of objects or a single object:
 	quote := yrsp.Query.Results["quote"]
+	if quote == nil {
+		// TODO(jsd): clear the sliceValue pointer to nil?
+		return
+	}
+
 	switch t := quote.(type) {
 	default:
-		panic(errors.New("unexpected JSON result type"))
+		panic(errors.New("unexpected JSON result type for 'quote'"))
 	case []interface{}:
 		sl := sliceValue
 		for j, n := range t {
