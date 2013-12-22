@@ -1,5 +1,4 @@
-// yql
-package main
+package yql
 
 // general stuff:
 import "fmt"
@@ -95,7 +94,7 @@ type yqlResponse struct {
 }
 
 // `q` is the YQL query
-func yql(results interface{}, q string) (err error) {
+func Get(results interface{}, q string) (err error) {
 	// Validate type of `results`:
 	structType := yqlValidateResultsType(results)
 

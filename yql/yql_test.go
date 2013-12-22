@@ -1,5 +1,4 @@
-// main_test.go
-package main
+package yql
 
 import (
 	"log"

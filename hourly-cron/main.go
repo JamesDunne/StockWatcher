@@ -16,13 +16,17 @@ import "math/big"
 
 //import "os"
 
-// networking:
 import "net/mail"
-import "net/smtp"
 
 // sqlite related imports:
 import "database/sql"
+import "github.com/jmoiron/sqlx"
 import _ "github.com/mattn/go-sqlite3"
+
+import "github.com/JamesDunne/StockWatcher/stocksdb"
+import "github.com/JamesDunne/StockWatcher/dbutil"
+import "github.com/JamesDunne/StockWatcher/yql"
+import "github.com/JamesDunne/StockWatcher/mailutil"
 
 // ------------- Utility functions:
 
@@ -79,12 +83,19 @@ func main() {
 	nyLoc, _ := time.LoadLocation("America/New_York")
 
 	// Create our DB file and its schema:
-	db, err := dbCreateSchema(dbPath)
+	db, err := stocksdb.CreateSchema(dbPath)
 	if err != nil {
 		log.Fatalln(err)
 		return
 	}
 	defer db.Close()
+
+	// Add some test data:
+	dbutil.Tx(db, func(tx *sqlx.Tx) (err error) {
+		db.Execl(`insert or ignore into User (Email, Name, NotificationTimeout) values ('example@example.org', 'Example User', 15)`)
+		db.Execl(`insert or ignore into StockOwned (UserID, Symbol, IsStopEnabled, PurchaseDate, PurchasePrice, StopPercent) values (1, 'MSFT', 1, '2012-09-01', '30.00', '0.1');`)
+		return nil
+	})
 
 	// Query stocks table:
 	stocks := make([]dbStock, 0, 4) // make(type, len, capacity)
@@ -123,7 +134,7 @@ where s.IsStopEnabled = 1`); err != nil {
 
 		// Determine the last-fetched date for the stock, assuming no holes exist in the dates:
 		var lastDate time.Time
-		ld, err := dbGetScalar(db, `select h.Date from StockHistory h where (h.Symbol = ?1) and (datetime(h.Date) = (select max(datetime(Date)) from StockHistory where Symbol = h.Symbol))`, st.Symbol)
+		ld, err := dbutil.GetScalar(db, `select h.Date from StockHistory h where (h.Symbol = ?1) and (datetime(h.Date) = (select max(datetime(Date)) from StockHistory where Symbol = h.Symbol))`, st.Symbol)
 		if ld == nil {
 			// No rows; fetch all the way back to purchase date
 			lastDate = purchaseDate
@@ -138,7 +149,7 @@ where s.IsStopEnabled = 1`); err != nil {
 			log.Printf("  Fetching current trading price...\n")
 
 			quot := make([]yqlQuote, 0, 1)
-			err := yql(&quot, query)
+			err := yql.Get(&quot, query)
 			if err != nil {
 				log.Println(err)
 				taskCurrPrice <- nil
@@ -161,7 +172,7 @@ where s.IsStopEnabled = 1`); err != nil {
 			yqlHistQuery := `select Symbol, Date, Open, Close, High, Low, Volume from yahoo.finance.historicaldata where symbol = "` + st.Symbol + `" and startDate = "` + lastDate.Format(dateFmt) + `" and endDate = "` + yesterday.Format(dateFmt) + `"`
 
 			hist := make([]yqlHistory, 0, 10)
-			if err = yql(&hist, yqlHistQuery); err != nil {
+			if err = yql.Get(&hist, yqlHistQuery); err != nil {
 				log.Println(err)
 				continue
 			}
@@ -190,7 +201,7 @@ where s.IsStopEnabled = 1`); err != nil {
 				})
 			}
 
-			err = dbBulkInsert(db, "StockHistory", []string{"Symbol", "Date", "Closing", "Opening", "High", "Low", "Volume"}, rows)
+			err = dbutil.BulkInsert(db, "StockHistory", []string{"Symbol", "Date", "Closing", "Opening", "High", "Low", "Volume"}, rows)
 			if err != nil {
 				log.Println(err)
 				continue
@@ -200,7 +211,7 @@ where s.IsStopEnabled = 1`); err != nil {
 		}
 
 		// Determine the highest and lowest closing price from historical data:
-		maxmin, err := dbGetScalars(db, `select max(cast(Closing as real)), min(cast(Closing as real)) from StockHistory where Symbol = ?1`, st.Symbol)
+		maxmin, err := dbutil.GetScalars(db, `select max(cast(Closing as real)), min(cast(Closing as real)) from StockHistory where Symbol = ?1`, st.Symbol)
 		if err == sql.ErrNoRows {
 			maxmin = []interface{}{"", ""}
 		} else if err != nil {
@@ -213,7 +224,7 @@ where s.IsStopEnabled = 1`); err != nil {
 		stopPrice := new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Sub(toRat("100"), toRat(st.StopPercent)), toRat("0.01"))), highestPrice)
 
 		// Calculate long running averages:
-		avgs, err := dbGetScalars(db, `
+		avgs, err := dbutil.GetScalars(db, `
 select (select avg(cast(Closing as real)) from StockHistory where Symbol = ?1 and (datetime(Date) between datetime(?2, '-50 days') and datetime(?2))) as avg50,
        (select avg(cast(Closing as real)) from StockHistory where Symbol = ?1 and (datetime(Date) between datetime(?2,'-200 days') and datetime(?2))) as avg200`,
 			st.Symbol,
@@ -254,30 +265,16 @@ select (select avg(cast(Closing as real)) from StockHistory where Symbol = ?1 an
 			if !st.StopLastNotificationDate.Valid || time.Now().After(nextDeliveryTime) {
 				log.Printf("  Delivering notification email to %s <%s>...\n", st.UserName, st.UserEmail)
 
-				// TODO(jsd): This is all overly complicated for just sending an email. Wrap this nonsense up in convenience methods.
+				// Format mail addresses:
 				from := mail.Address{"stock-watcher-" + st.Symbol, "stock.watcher." + st.Symbol + "@bittwiddlers.org"}
 				to := mail.Address{st.UserName, st.UserEmail}
+
+				// Format subject and body:
 				subject := st.Symbol + " price fell below " + stopPrice.FloatString(2)
 				body := fmt.Sprintf(`<html><body>%s current price %s just fell below stop price %s</body></html>`, st.Symbol, currPrice.FloatString(2), stopPrice.FloatString(2))
 
-				// Describe the mail headers:
-				header := make(map[string]string)
-				header["From"] = from.String()
-				header["To"] = to.String()
-				header["Subject"] = subject
-				header["Date"] = time.Now().In(nyLoc).Format(time.RFC1123Z)
-				// TODO(jsd): use 'text/plain' as an alternative.
-				header["Content-Type"] = `text/html; charset="UTF-8"`
-
-				// Build the formatted message body:
-				message := ""
-				for k, v := range header {
-					message += fmt.Sprintf("%s: %s\r\n", k, v)
-				}
-				message += "\r\n" + body
-
 				// Deliver email:
-				if err = smtp.SendMail("localhost:25", nil, from.Address, []string{to.Address}, []byte(message)); err != nil {
+				if err = mailutil.SendHtmlMessage(from, to, subject, body); err != nil {
 					log.Println(err)
 					log.Printf("  Failed delivering notification email.\n")
 				} else {
