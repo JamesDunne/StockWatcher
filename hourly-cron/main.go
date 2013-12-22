@@ -167,52 +167,35 @@ where s.IsStopEnabled = 1`); err != nil {
 			}
 			log.Printf("  Fetched historical data.\n")
 
-			// Insert historical records into the DB:
+			// Bulk insert the historical data into the StockHistory table:
 			log.Printf("  Recording historical data...\n")
 
-			{
-				// Start a transaction so that bulk insert is quick:
-				tx, err := db.Beginx()
+			rows := make([][]interface{}, 0, len(hist))
+			for _, h := range hist {
+				// Store dates as RFC3339 in the NYC timezone:
+				date, err := time.ParseInLocation(dateFmt, h.Date, nyLoc)
 				if err != nil {
 					log.Println(err)
 					continue
 				}
 
-				// Prepare insert statement:
-				stmtInsert, err := tx.Preparex(`insert into StockHistory (Symbol, Date, Closing, Opening, High, Low, Volume) values (?1,?2,?3,?4,?5,?6,?7)`)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-
-				// TODO(jsd): This is slow for many records because sqlite waits for disk flush on each insert.
-				for _, q := range hist {
-					// Store dates as RFC3339 in the NYC timezone:
-					date, err := time.ParseInLocation(dateFmt, q.Date, nyLoc)
-					if err != nil {
-						log.Println(err)
-						continue
-					}
-
-					// Insert the history record; log any errors:
-					stmtInsert.Execl(
-						st.Symbol,
-						date.Format(time.RFC3339),
-						q.Close,
-						q.Open,
-						q.High,
-						q.Low,
-						q.Volume,
-					)
-				}
-
-				// Commit the transaction:
-				err = tx.Tx.Commit()
-				if err != nil {
-					log.Println(err)
-					continue
-				}
+				rows = append(rows, []interface{}{
+					st.Symbol,
+					date.Format(time.RFC3339),
+					h.Close,
+					h.Open,
+					h.High,
+					h.Low,
+					h.Volume,
+				})
 			}
+
+			err = dbBulkInsert(db, "StockHistory", []string{"Symbol", "Date", "Closing", "Opening", "High", "Low", "Volume"}, rows)
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+
 			log.Printf("  Recorded historical data.\n")
 		}
 

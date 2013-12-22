@@ -1,6 +1,9 @@
 // database
 package main
 
+import "fmt"
+import "strings"
+
 // sqlite related imports:
 import _ "github.com/mattn/go-sqlite3"
 import "github.com/jmoiron/sqlx"
@@ -37,6 +40,49 @@ func dbGetScalars(db *sqlx.DB, query string, args ...interface{}) (slice []inter
 	// Get the column slice:
 	slice, err = row.SliceScan()
 	return
+}
+
+// Execute a database action in a transaction:
+func dbTx(db *sqlx.DB, action func(tx *sqlx.Tx) error) (err error) {
+	tx, err := db.Beginx()
+	if err != nil {
+		return
+	}
+
+	err = action(tx)
+	if err != nil {
+		//tx.Tx.Abort()
+		return
+	}
+
+	// Commit the transaction:
+	err = tx.Tx.Commit()
+	return
+}
+
+// Does a bulk insert of data into a single table using a transaction to make it quick:
+func dbBulkInsert(db *sqlx.DB, tableName string, columns []string, rows [][]interface{}) (err error) {
+	// Run in a transaction:
+	return dbTx(db, func(tx *sqlx.Tx) (err error) {
+		// Prepare insert statement:
+		// e.g. `insert into StockHistory (Symbol, Date, Closing, Opening, High, Low, Volume) values (?1,?2,?3,?4,?5,?6,?7)`
+
+		paramIdents := make([]string, 0, len(columns))
+		for i := 0; i < len(columns); i++ {
+			paramIdents = append(paramIdents, fmt.Sprintf("?%d", i+1))
+		}
+
+		stmtInsert, err := tx.Preparex(`insert into ` + tableName + ` (` + strings.Join(columns, ",") + `) values (` + strings.Join(paramIdents, ",") + `)`)
+		if err != nil {
+			return
+		}
+
+		// Insert each row:
+		for _, row := range rows {
+			stmtInsert.Execl(row...)
+		}
+		return
+	})
 }
 
 // Creates the DB schema and inserts testing data:
@@ -127,8 +173,11 @@ create index if not exists IX_StockOwned on StockOwned (
 	}
 
 	// Add some test data:
-	db.Execl(`insert or ignore into User (Email, Name, NotificationTimeout) values ('example@example.org', 'Example User', 15)`)
-	db.Execl(`insert or ignore into StockOwned (UserID, Symbol, IsStopEnabled, PurchaseDate, PurchasePrice, StopPercent) values (1, 'MSFT', 1, '2012-09-01', '30.00', '0.1');`)
+	dbTx(db, func(tx *sqlx.Tx) (err error) {
+		db.Execl(`insert or ignore into User (Email, Name, NotificationTimeout) values ('example@example.org', 'Example User', 15)`)
+		db.Execl(`insert or ignore into StockOwned (UserID, Symbol, IsStopEnabled, PurchaseDate, PurchasePrice, StopPercent) values (1, 'MSFT', 1, '2012-09-01', '30.00', '0.1');`)
+		return nil
+	})
 
 	return
 }
