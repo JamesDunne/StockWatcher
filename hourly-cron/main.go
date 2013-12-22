@@ -119,13 +119,11 @@ where s.IsStopEnabled = 1`); err != nil {
 		// NOTE(jsd): Stock dates/times are in NYC timezone.
 		purchaseDate, _ := time.Parse(dateFmt, st.PurchaseDate)
 
-		now := time.Now()
-
 		log.Printf("'%s' purchased by %s <%s> on %s for %s with %s%% trailing stop\n", st.Symbol, st.UserName, st.UserEmail, purchaseDate.Format(dateFmt), toRat(st.PurchasePrice).FloatString(2), toRat(st.StopPercent).FloatString(2))
 
 		// Determine the last-fetched date for the stock, assuming no holes exist in the dates:
 		var lastDate time.Time
-		ld, err := dbGetScalar(db, `select h.Date from StockHistory h where (h.Symbol = ?) and (datetime(h.Date) = (select max(datetime(Date)) from StockHistory where Symbol = h.Symbol))`, st.Symbol)
+		ld, err := dbGetScalar(db, `select h.Date from StockHistory h where (h.Symbol = ?1) and (datetime(h.Date) = (select max(datetime(Date)) from StockHistory where Symbol = h.Symbol))`, st.Symbol)
 		if ld == nil {
 			// No rows; fetch all the way back to purchase date
 			lastDate = purchaseDate
@@ -181,7 +179,7 @@ where s.IsStopEnabled = 1`); err != nil {
 
 				// Insert the history record; log any errors:
 				db.Execl(
-					`insert into StockHistory (Symbol, Date, Closing, Opening, High, Low, Volume) values (?,?,?,?,?,?,?)`,
+					`insert into StockHistory (Symbol, Date, Closing, Opening, High, Low, Volume) values (?1,?2,?3,?4,?5,?6,?7)`,
 					st.Symbol,
 					date.Format(time.RFC3339),
 					q.Close,
@@ -195,7 +193,7 @@ where s.IsStopEnabled = 1`); err != nil {
 		}
 
 		// Determine the highest and lowest closing price from historical data:
-		maxmin, err := dbGetScalars(db, `select max(cast(Closing as real)), min(cast(Closing as real)) from StockHistory where Symbol = ?`, st.Symbol)
+		maxmin, err := dbGetScalars(db, `select max(cast(Closing as real)), min(cast(Closing as real)) from StockHistory where Symbol = ?1`, st.Symbol)
 		if err == sql.ErrNoRows {
 			maxmin = []interface{}{"", ""}
 		} else if err != nil {
@@ -204,10 +202,16 @@ where s.IsStopEnabled = 1`); err != nil {
 		}
 		highestPrice, lowestPrice := toRat(maxmin[0].(string)), toRat(maxmin[1].(string))
 
+		// stopPrice = ((100 - stopPercent) * 0.01) * highestPrice
+		stopPrice := new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Sub(toRat("100"), toRat(st.StopPercent)), toRat("0.01"))), highestPrice)
+
 		// Calculate long running averages:
 		avgs, err := dbGetScalars(db, `
-select (select avg(cast(Closing as real)) from StockHistory where Symbol = ? and (datetime(Date) between datetime('now', '-50 days') and datetime('now'))) as avg50,
-       (select avg(cast(Closing as real)) from StockHistory where Symbol = ? and (datetime(Date) between datetime('now','-200 days') and datetime('now'))) as avg200`, st.Symbol, st.Symbol)
+select (select avg(cast(Closing as real)) from StockHistory where Symbol = ?1 and (datetime(Date) between datetime(?2, '-50 days') and datetime(?2))) as avg50,
+       (select avg(cast(Closing as real)) from StockHistory where Symbol = ?1 and (datetime(Date) between datetime(?2,'-200 days') and datetime(?2))) as avg200`,
+			st.Symbol,
+			today.Format(time.RFC3339),
+		)
 		if err == sql.ErrNoRows {
 			avgs = []interface{}{"", ""}
 		} else if err != nil {
@@ -216,8 +220,12 @@ select (select avg(cast(Closing as real)) from StockHistory where Symbol = ? and
 		}
 		avg50, avg200 := toRat(avgs[0].(string)), toRat(avgs[1].(string))
 
-		// stopPrice = ((100 - stopPercent) * 0.01) * highestPrice
-		stopPrice := new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Sub(toRat("100"), toRat(st.StopPercent)), toRat("0.01"))), highestPrice)
+		log.Println()
+		log.Printf("  Highest closing price:  %s\n", highestPrice.FloatString(2))
+		log.Printf("  Lowest closing price:   %s\n", lowestPrice.FloatString(2))
+		log.Printf("  50-day moving average:  %s\n", avg50.FloatString(2))
+		log.Printf("  200-day moving average: %s\n", avg200.FloatString(2))
+		log.Println()
 
 		// Wait for current price data to come back:
 		currPrice := <-taskCurrPrice
@@ -226,12 +234,6 @@ select (select avg(cast(Closing as real)) from StockHistory where Symbol = ? and
 			continue
 		}
 
-		log.Println()
-		log.Printf("  Highest closing price:  %s\n", highestPrice.FloatString(2))
-		log.Printf("  Lowest closing price:   %s\n", lowestPrice.FloatString(2))
-		log.Printf("  50-day moving average:  %s\n", avg50.FloatString(2))
-		log.Printf("  200-day moving average: %s\n", avg200.FloatString(2))
-		log.Println()
 		log.Printf("  Current price:  %s\n", currPrice.FloatString(2))
 		log.Printf("  Stopping price: %s\n", stopPrice.FloatString(2))
 		log.Println()
@@ -242,7 +244,7 @@ select (select avg(cast(Closing as real)) from StockHistory where Symbol = ? and
 
 			// Check DB to see if notification already sent:
 			nextDeliveryTime := toDateTime(st.StopLastNotificationDate.String, nil).Add(time.Duration(st.UserNotificationTimeout) * time.Second)
-			if !st.StopLastNotificationDate.Valid || now.After(nextDeliveryTime) {
+			if !st.StopLastNotificationDate.Valid || time.Now().After(nextDeliveryTime) {
 				log.Printf("  Delivering notification email to %s <%s>...\n", st.UserName, st.UserEmail)
 
 				// TODO(jsd): This is all overly complicated for just sending an email. Wrap this nonsense up in convenience methods.
@@ -275,8 +277,8 @@ select (select avg(cast(Closing as real)) from StockHistory where Symbol = ? and
 					log.Printf("  Delivered notification email.\n")
 					// Successfully delivered email as far as we know; record last delivery date/time:
 					db.Execl(
-						`update StockOwned set StopLastNotificationDate = ? where rowid = ?`,
-						now.Format(time.RFC3339),
+						`update StockOwned set StopLastNotificationDate = ?1 where rowid = ?2`,
+						time.Now().Format(time.RFC3339),
 						st.StockOwnedID,
 					)
 				}
