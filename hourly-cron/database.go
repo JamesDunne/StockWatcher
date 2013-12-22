@@ -26,6 +26,7 @@ func dbGetScalar(db *sqlx.DB, query string, args ...interface{}) (value interfac
 	return slice[0], nil
 }
 
+// Gets a slice of scalar values from a DB query:
 func dbGetScalars(db *sqlx.DB, query string, args ...interface{}) (slice []interface{}, err error) {
 	// Call QueryRowx to get a raw Row result:
 	row := db.QueryRowx(query, args...)
@@ -38,6 +39,7 @@ func dbGetScalars(db *sqlx.DB, query string, args ...interface{}) (slice []inter
 	return
 }
 
+// Creates the DB schema and inserts testing data:
 func dbCreateSchema(path string) (db *sqlx.DB, err error) {
 	// using sqlite 3.8.0 release
 	db, err = sqlx.Connect("sqlite3", path)
@@ -79,7 +81,7 @@ create index if not exists IX_StockHistory_Closing on StockHistory (
 create table if not exists User (
 	Email TEXT NOT NULL,
 	Name TEXT NOT NULL,
-	NotificationTimeout INTEGER,
+	NotificationTimeout INTEGER,	-- in seconds
 	CONSTRAINT PK_User PRIMARY KEY (Email)
 )`); err != nil {
 		db.Close()

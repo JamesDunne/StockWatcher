@@ -14,28 +14,28 @@ import "io/ioutil"
 import "net/http"
 import "net/url"
 
-type yqlResponse struct {
-	Query struct {
-		Count       int                    `json:"count"`
-		CreatedDate string                 `json:"created"`
-		Results     map[string]interface{} `json:"results"`
-	} `json:"query"`
+func yqlValidateResultsType(results interface{}) (structType reflect.Type) {
+	if results == nil {
+		panic(errors.New("results cannot be nil"))
+	}
+	rt := reflect.TypeOf(results)
+	if rt.Kind() != reflect.Ptr {
+		panic(errors.New("results must be a pointer"))
+	}
+	rtp := rt.Elem()
+	if rtp.Kind() != reflect.Slice {
+		panic(errors.New("results must be a pointer to a slice"))
+	}
+	structType = rtp.Elem()
+	if structType.Kind() != reflect.Struct {
+		panic(errors.New("results must be a pointer to a slice of structs"))
+	}
+	return
 }
 
-func yqlDecode(body []byte, results interface{}, structType reflect.Type) (err error) {
+func yqlExtractResponse(body []byte, results interface{}, structType reflect.Type) (err error) {
 	if structType == nil {
-		rt := reflect.TypeOf(results)
-		if rt.Kind() != reflect.Ptr {
-			panic(errors.New("results must be a pointer"))
-		}
-		rtp := rt.Elem()
-		if rtp.Kind() != reflect.Slice {
-			panic(errors.New("results must be a pointer to a slice"))
-		}
-		structType = rtp.Elem()
-		if structType.Kind() != reflect.Struct {
-			panic(errors.New("results must be a pointer to a slice of structs"))
-		}
+		structType = yqlValidateResultsType(results)
 	}
 
 	// results is now guaranteed to be a pointer to a slice of structs.
@@ -86,24 +86,18 @@ func yqlDecode(body []byte, results interface{}, structType reflect.Type) (err e
 	return
 }
 
+type yqlResponse struct {
+	Query struct {
+		Count       int                    `json:"count"`
+		CreatedDate string                 `json:"created"`
+		Results     map[string]interface{} `json:"results"`
+	} `json:"query"`
+}
+
 // `q` is the YQL query
 func yql(results interface{}, q string) (err error) {
 	// Validate type of `results`:
-	if results == nil {
-		panic(errors.New("results cannot be nil"))
-	}
-	rt := reflect.TypeOf(results)
-	if rt.Kind() != reflect.Ptr {
-		panic(errors.New("results must be a pointer"))
-	}
-	rtp := rt.Elem()
-	if rtp.Kind() != reflect.Slice {
-		panic(errors.New("results must be a pointer to a slice"))
-	}
-	structType := rtp.Elem()
-	if structType.Kind() != reflect.Struct {
-		panic(errors.New("results must be a pointer to a slice of structs"))
-	}
+	structType := yqlValidateResultsType(results)
 
 	// form the YQL URL:
 	u := `http://query.yahooapis.com/v1/public/yql?q=` + url.QueryEscape(q) + `&format=json&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys`
@@ -133,11 +127,11 @@ func yql(results interface{}, q string) (err error) {
 		return
 	}
 
-	// decode the varying JSON structure:
-	err = yqlDecode(body, results, structType)
+	// Extract the unstable JSON structure's results field as an array:
+	err = yqlExtractResponse(body, results, structType)
 	if err != nil {
 		// debugging info:
-		log.Printf("query:    %s", q)
+		log.Printf("query:    %s\n", q)
 		return
 	}
 
