@@ -11,42 +11,20 @@ package main
 // general stuff:
 import "fmt"
 import "log"
-import "errors"
 import "time"
-import "encoding/json"
 import "math/big"
-import "strings"
-import "reflect"
 
 //import "os"
 
 // networking:
-import "io/ioutil"
-import "net/http"
-import "net/url"
 import "net/mail"
 import "net/smtp"
 
 // sqlite related imports:
 import "database/sql"
 import _ "github.com/mattn/go-sqlite3"
-import "github.com/jmoiron/sqlx"
 
 // ------------- Utility functions:
-
-// remove the time component of a datetime to get just a date at 00:00:00
-func truncDate(t time.Time) time.Time {
-	hour, min, sec := t.Clock()
-	nano := t.Nanosecond()
-
-	d := time.Duration(0) - (time.Duration(nano) + time.Duration(sec)*time.Second + time.Duration(min)*time.Minute + time.Duration(hour)*time.Hour)
-	return t.Add(d)
-}
-
-func toDateTime(d string, loc *time.Location) time.Time {
-	t, _ := time.ParseInLocation(time.RFC3339, d, loc)
-	return t
-}
 
 // Converts a string into a `*big.Rat` which is an arbitrary precision rational number stored in decimal format
 func toRat(v string) *big.Rat {
@@ -55,40 +33,7 @@ func toRat(v string) *big.Rat {
 	return rat
 }
 
-// Gets a single scalar value from a DB query:
-func dbGetScalar(db *sqlx.DB, query string, args ...interface{}) (value interface{}, err error) {
-	// Call QueryRowx to get a raw Row result:
-	row := db.QueryRowx(query, args...)
-	if err = row.Err(); err != nil {
-		return
-	}
-
-	// Get the column slice:
-	slice, err := row.SliceScan()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(slice) == 0 {
-		return nil, nil
-	}
-
-	return slice[0], nil
-}
-
-func dbGetScalars(db *sqlx.DB, query string, args ...interface{}) (slice []interface{}, err error) {
-	// Call QueryRowx to get a raw Row result:
-	row := db.QueryRowx(query, args...)
-	if err = row.Err(); err != nil {
-		return
-	}
-
-	// Get the column slice:
-	slice, err = row.SliceScan()
-	return
-}
-
-// ------------- YQL functions:
+// ------------- data structures:
 
 // Head to http://developer.yahoo.com/yql/console/?q=select%20*%20from%20yahoo.finance.quote%20where%20symbol%20in%20(%22YHOO%22%2C%22AAPL%22%2C%22GOOG%22%2C%22MSFT%22)&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys
 // to understand this JSON structure.
@@ -108,231 +53,7 @@ type yqlHistory struct {
 	Volume string
 }
 
-type yqlResponse struct {
-	Query struct {
-		Count       int                    `json:"count"`
-		CreatedDate string                 `json:"created"`
-		Results     map[string]interface{} `json:"results"`
-	} `json:"query"`
-}
-
-func yqlDecode(body []byte, results interface{}, structType reflect.Type) (err error) {
-	if structType == nil {
-		rt := reflect.TypeOf(results)
-		if rt.Kind() != reflect.Ptr {
-			panic(errors.New("results must be a pointer"))
-		}
-		rtp := rt.Elem()
-		if rtp.Kind() != reflect.Slice {
-			panic(errors.New("results must be a pointer to a slice"))
-		}
-		structType = rtp.Elem()
-		if structType.Kind() != reflect.Struct {
-			panic(errors.New("results must be a pointer to a slice of structs"))
-		}
-	}
-
-	// results is now guaranteed to be a pointer to a slice of structs.
-	sliceValue := reflect.ValueOf(results).Elem()
-
-	// decode JSON response body:
-	yrsp := new(yqlResponse)
-	err = json.Unmarshal(body, yrsp)
-	if err != nil {
-		// debugging info:
-		log.Printf("response: %s\n", body)
-		return
-	}
-
-	// Decode the Results map as either an array of objects or a single object:
-	quote := yrsp.Query.Results["quote"]
-	switch t := quote.(type) {
-	default:
-		panic(errors.New("unexpected JSON result type"))
-	case []interface{}:
-		sl := sliceValue
-		for j, n := range t {
-			// Append to the slice for each array element:
-			m := n.(map[string]interface{})
-			sl = reflect.Append(sl, reflect.Zero(structType))
-			el := sl.Index(j)
-			for i := 0; i < structType.NumField(); i++ {
-				f := structType.Field(i)
-				if v, ok := m[f.Name]; ok {
-					el.Field(i).Set(reflect.ValueOf(v))
-				}
-			}
-		}
-		sliceValue.Set(sl)
-	case map[string]interface{}:
-		// Insert the only element of the slice:
-		sl := reflect.Append(sliceValue, reflect.Zero(structType))
-		el0 := sl.Index(0)
-		for i := 0; i < structType.NumField(); i++ {
-			f := structType.Field(i)
-			if v, ok := t[f.Name]; ok {
-				el0.Field(i).Set(reflect.ValueOf(v))
-			}
-		}
-		sliceValue.Set(sl)
-	}
-
-	return
-}
-
-// `q` is the YQL query
-func yql(results interface{}, q string) (err error) {
-	// Validate type of `results`:
-	if results == nil {
-		panic(errors.New("results cannot be nil"))
-	}
-	rt := reflect.TypeOf(results)
-	if rt.Kind() != reflect.Ptr {
-		panic(errors.New("results must be a pointer"))
-	}
-	rtp := rt.Elem()
-	if rtp.Kind() != reflect.Slice {
-		panic(errors.New("results must be a pointer to a slice"))
-	}
-	structType := rtp.Elem()
-	if structType.Kind() != reflect.Struct {
-		panic(errors.New("results must be a pointer to a slice of structs"))
-	}
-
-	// form the YQL URL:
-	u := `http://query.yahooapis.com/v1/public/yql?q=` + url.QueryEscape(q) + `&format=json&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys`
-	resp, err := http.Get(u)
-	if err != nil {
-		return
-	}
-
-	// read body:
-	defer resp.Body.Close()
-
-	// Need a 200 response:
-	if resp.StatusCode != 200 {
-		err = fmt.Errorf("%s", resp.Status)
-		return
-	}
-	if hp, ok := resp.Header["Content-Type"]; ok && len(hp) > 0 {
-		if strings.Split(hp[0], ";")[0] != "application/json" {
-			err = fmt.Errorf("Expected JSON content-type: %s", hp[0])
-			return
-		}
-	}
-
-	// Read the whole response body into memory:
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return
-	}
-
-	// decode the varying JSON structure:
-	err = yqlDecode(body, results, structType)
-	if err != nil {
-		// debugging info:
-		log.Printf("query:    %s", q)
-		return
-	}
-
-	return
-}
-
-// ------------- sqlite3 functions:
-
-func db_create_schema(path string) (db *sqlx.DB, err error) {
-	// using sqlite 3.8.0 release
-	db, err = sqlx.Connect("sqlite3", path)
-	if err != nil {
-		db.Close()
-		return
-	}
-
-	// Track historical stock data:
-	if _, err = db.Exec(`
-create table if not exists StockHistory (
-	Symbol TEXT NOT NULL,
-	Date TEXT NOT NULL,
-	Closing TEXT NOT NULL,
-	Opening TEXT NOT NULL,
-	Low TEXT NOT NULL,
-	High TEXT NOT NULL,
-	Volume INTEGER NOT NULL,
-	CONSTRAINT PK_StockHistory PRIMARY KEY (Symbol, Date)
-)`); err != nil {
-		db.Close()
-		return
-	}
-
-	// Index for historical data:
-	if _, err = db.Exec(`
-create index if not exists IX_StockHistory_Closing on StockHistory (
-	Symbol ASC,
-	Date ASC,
-	Closing ASC
-)`); err != nil {
-		db.Close()
-		return
-	}
-
-	// Create user table:
-	// TODO(jsd): OpenID sessions support
-	if _, err = db.Exec(`
-create table if not exists User (
-	Email TEXT NOT NULL,
-	Name TEXT NOT NULL,
-	NotificationTimeout INTEGER,
-	CONSTRAINT PK_User PRIMARY KEY (Email)
-)`); err != nil {
-		db.Close()
-		return
-	}
-
-	// Index for users:
-	if _, err = db.Exec(`
-create index if not exists IX_User on User (
-	Email ASC,
-	Name ASC
-)`); err != nil {
-		db.Close()
-		return
-	}
-
-	// Track user-owned stocks and calculate a trailing stop price:
-	if _, err = db.Exec(`
-create table if not exists StockOwned (
-	UserID INTEGER NOT NULL,
-	Symbol TEXT NOT NULL,
-	IsStopEnabled INTEGER NOT NULL,
-	PurchaseDate TEXT NOT NULL,
-	PurchasePrice TEXT NOT NULL,
-	StopPercent TEXT NOT NULL,
-	StopLastNotificationDate TEXT,
-	CONSTRAINT PK_StockOwned PRIMARY KEY (UserID, Symbol)
-)`); err != nil {
-		db.Close()
-		return
-	}
-
-	if _, err = db.Exec(`
-create index if not exists IX_StockOwned on StockOwned (
-	UserID ASC,
-	Symbol ASC,
-	IsStopEnabled,
-	PurchaseDate,
-	PurchasePrice
-)`); err != nil {
-		db.Close()
-		return
-	}
-
-	// Add some test data:
-	db.Execl(`insert or ignore into User (Email, Name, NotificationTimeout) values ('example@example.org', 'Example User', 15)`)
-	db.Execl(`insert or ignore into StockOwned (UserID, Symbol, IsStopEnabled, PurchaseDate, PurchasePrice, StopPercent) values (1, 'MSFT', 1, '2012-09-01', '30.00', '0.1');`)
-
-	return
-}
-
+// from StockOwned joined with User:
 type dbStock struct {
 	UserID                  int    `db:"UserID"`
 	UserEmail               string `db:"UserEmail"`
@@ -358,7 +79,7 @@ func main() {
 	nyLoc, _ := time.LoadLocation("America/New_York")
 
 	// Create our DB file and its schema:
-	db, err := db_create_schema(dbPath)
+	db, err := dbCreateSchema(dbPath)
 	if err != nil {
 		log.Fatalln(err)
 		return
