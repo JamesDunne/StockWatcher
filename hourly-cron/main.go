@@ -8,21 +8,26 @@
 */
 package main
 
+// general stuff:
 import "fmt"
 import "log"
-import _ "errors"
-
-//import "os"
-import "math/big"
-
+import "errors"
 import "time"
 import "encoding/json"
+import "math/big"
+import "strings"
+import "reflect"
+
+//import "os"
+
+// networking:
 import "io/ioutil"
 import "net/http"
 import "net/url"
 import "net/mail"
 import "net/smtp"
 
+// sqlite related imports:
 import "database/sql"
 import _ "github.com/mattn/go-sqlite3"
 import "github.com/jmoiron/sqlx"
@@ -30,12 +35,17 @@ import "github.com/jmoiron/sqlx"
 // ------------- Utility functions:
 
 // remove the time component of a datetime to get just a date at 00:00:00
-func toDate(t time.Time) time.Time {
+func truncDate(t time.Time) time.Time {
 	hour, min, sec := t.Clock()
 	nano := t.Nanosecond()
 
-	d := time.Duration(-(uint64(nano) + uint64(sec)*uint64(time.Second) + uint64(min)*uint64(time.Minute) + uint64(hour)*uint64(time.Hour)))
+	d := time.Duration(0) - (time.Duration(nano) + time.Duration(sec)*time.Second + time.Duration(min)*time.Minute + time.Duration(hour)*time.Hour)
 	return t.Add(d)
+}
+
+func toDateTime(d string, loc *time.Location) time.Time {
+	t, _ := time.ParseInLocation(time.RFC3339, d, loc)
+	return t
 }
 
 // Converts a string into a `*big.Rat` which is an arbitrary precision rational number stored in decimal format
@@ -53,7 +63,7 @@ func dbGetScalar(db *sqlx.DB, query string, args ...interface{}) (value interfac
 		return
 	}
 
-	// Slice the row up into columns:
+	// Get the column slice:
 	slice, err := row.SliceScan()
 	if err != nil {
 		return nil, err
@@ -66,26 +76,29 @@ func dbGetScalar(db *sqlx.DB, query string, args ...interface{}) (value interfac
 	return slice[0], nil
 }
 
+func dbGetScalars(db *sqlx.DB, query string, args ...interface{}) (slice []interface{}, err error) {
+	// Call QueryRowx to get a raw Row result:
+	row := db.QueryRowx(query, args...)
+	if err = row.Err(); err != nil {
+		return
+	}
+
+	// Get the column slice:
+	slice, err = row.SliceScan()
+	return
+}
+
 // ------------- YQL functions:
 
 // Head to http://developer.yahoo.com/yql/console/?q=select%20*%20from%20yahoo.finance.quote%20where%20symbol%20in%20(%22YHOO%22%2C%22AAPL%22%2C%22GOOG%22%2C%22MSFT%22)&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys
 // to understand this JSON structure.
 
-type Quote struct {
-	Symbol             string `json:"Symbol"`
+type yqlQuote struct {
+	Symbol             string
 	LastTradePriceOnly string
 }
 
-type QuoteResponse struct {
-	Query struct {
-		CreatedDate string `json:"created"`
-		Results     *struct {
-			Quote Quote `json:"quote"`
-		} `json:"results"`
-	} `json:"query"`
-}
-
-type Historical struct {
+type yqlHistory struct {
 	Symbol string
 	Date   string
 	Open   string
@@ -95,17 +108,97 @@ type Historical struct {
 	Volume string
 }
 
-type HistoricalResponse struct {
+type yqlResponse struct {
 	Query struct {
-		CreatedDate string `json:"created"`
-		Results     *struct {
-			Quote []Historical `json:"quote"`
-		} `json:"results"`
+		Count       int                    `json:"count"`
+		CreatedDate string                 `json:"created"`
+		Results     map[string]interface{} `json:"results"`
 	} `json:"query"`
 }
 
+func yqlDecode(body []byte, results interface{}, structType reflect.Type) (err error) {
+	if structType == nil {
+		rt := reflect.TypeOf(results)
+		if rt.Kind() != reflect.Ptr {
+			panic(errors.New("results must be a pointer"))
+		}
+		rtp := rt.Elem()
+		if rtp.Kind() != reflect.Slice {
+			panic(errors.New("results must be a pointer to a slice"))
+		}
+		structType = rtp.Elem()
+		if structType.Kind() != reflect.Struct {
+			panic(errors.New("results must be a pointer to a slice of structs"))
+		}
+	}
+
+	// results is now guaranteed to be a pointer to a slice of structs.
+	sliceValue := reflect.ValueOf(results).Elem()
+
+	// decode JSON response body:
+	yrsp := new(yqlResponse)
+	err = json.Unmarshal(body, yrsp)
+	if err != nil {
+		// debugging info:
+		log.Printf("response: %s\n", body)
+		return
+	}
+
+	// Decode the Results map as either an array of objects or a single object:
+	quote := yrsp.Query.Results["quote"]
+	switch t := quote.(type) {
+	default:
+		panic(errors.New("unexpected JSON result type"))
+	case []interface{}:
+		sl := sliceValue
+		for j, n := range t {
+			// Append to the slice for each array element:
+			m := n.(map[string]interface{})
+			sl = reflect.Append(sl, reflect.Zero(structType))
+			el := sl.Index(j)
+			for i := 0; i < structType.NumField(); i++ {
+				f := structType.Field(i)
+				if v, ok := m[f.Name]; ok {
+					el.Field(i).Set(reflect.ValueOf(v))
+				}
+			}
+		}
+		sliceValue.Set(sl)
+	case map[string]interface{}:
+		// Insert the only element of the slice:
+		sl := reflect.Append(sliceValue, reflect.Zero(structType))
+		el0 := sl.Index(0)
+		for i := 0; i < structType.NumField(); i++ {
+			f := structType.Field(i)
+			if v, ok := t[f.Name]; ok {
+				el0.Field(i).Set(reflect.ValueOf(v))
+			}
+		}
+		sliceValue.Set(sl)
+	}
+
+	return
+}
+
 // `q` is the YQL query
-func yql(jrsp interface{}, q string) (err error) {
+func yql(results interface{}, q string) (err error) {
+	// Validate type of `results`:
+	if results == nil {
+		panic(errors.New("results cannot be nil"))
+	}
+	rt := reflect.TypeOf(results)
+	if rt.Kind() != reflect.Ptr {
+		panic(errors.New("results must be a pointer"))
+	}
+	rtp := rt.Elem()
+	if rtp.Kind() != reflect.Slice {
+		panic(errors.New("results must be a pointer to a slice"))
+	}
+	structType := rtp.Elem()
+	if structType.Kind() != reflect.Struct {
+		panic(errors.New("results must be a pointer to a slice of structs"))
+	}
+
 	// form the YQL URL:
 	u := `http://query.yahooapis.com/v1/public/yql?q=` + url.QueryEscape(q) + `&format=json&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys`
 	resp, err := http.Get(u)
@@ -121,17 +214,27 @@ func yql(jrsp interface{}, q string) (err error) {
 		err = fmt.Errorf("%s", resp.Status)
 		return
 	}
+	if hp, ok := resp.Header["Content-Type"]; ok && len(hp) > 0 {
+		if strings.Split(hp[0], ";")[0] != "application/json" {
+			err = fmt.Errorf("Expected JSON content-type: %s", hp[0])
+			return
+		}
+	}
 
+	// Read the whole response body into memory:
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return
 	}
 
-	// print JSON to console:
-	//fmt.Printf("%s\n\n", body)
+	// decode the varying JSON structure:
+	err = yqlDecode(body, results, structType)
+	if err != nil {
+		// debugging info:
+		log.Printf("query:    %s", q)
+		return
+	}
 
-	// decode JSON:
-	err = json.Unmarshal(body, jrsp)
 	return
 }
 
@@ -145,66 +248,104 @@ func db_create_schema(path string) (db *sqlx.DB, err error) {
 		return
 	}
 
+	// Track historical stock data:
 	if _, err = db.Exec(`
-create table if not exists stock_track (
-	symbol TEXT NOT NULL,
-	purchaser_email TEXT NOT NULL,
-	purchase_price TEXT NOT NULL,
-	purchase_date TEXT NOT NULL,
-	trailing_stop_percent TEXT NOT NULL,
-	CONSTRAINT stock_track_pk PRIMARY KEY (symbol, purchaser_email)
+create table if not exists StockHistory (
+	Symbol TEXT NOT NULL,
+	Date TEXT NOT NULL,
+	Closing TEXT NOT NULL,
+	Opening TEXT NOT NULL,
+	Low TEXT NOT NULL,
+	High TEXT NOT NULL,
+	Volume INTEGER NOT NULL,
+	CONSTRAINT PK_StockHistory PRIMARY KEY (Symbol, Date)
+)`); err != nil {
+		db.Close()
+		return
+	}
+
+	// Index for historical data:
+	if _, err = db.Exec(`
+create index if not exists IX_StockHistory_Closing on StockHistory (
+	Symbol ASC,
+	Date ASC,
+	Closing ASC
+)`); err != nil {
+		db.Close()
+		return
+	}
+
+	// Create user table:
+	// TODO(jsd): OpenID sessions support
+	if _, err = db.Exec(`
+create table if not exists User (
+	Email TEXT NOT NULL,
+	Name TEXT NOT NULL,
+	NotificationTimeout INTEGER,
+	CONSTRAINT PK_User PRIMARY KEY (Email)
+)`); err != nil {
+		db.Close()
+		return
+	}
+
+	// Index for users:
+	if _, err = db.Exec(`
+create index if not exists IX_User on User (
+	Email ASC,
+	Name ASC
+)`); err != nil {
+		db.Close()
+		return
+	}
+
+	// Track user-owned stocks and calculate a trailing stop price:
+	if _, err = db.Exec(`
+create table if not exists StockOwned (
+	UserID INTEGER NOT NULL,
+	Symbol TEXT NOT NULL,
+	IsStopEnabled INTEGER NOT NULL,
+	PurchaseDate TEXT NOT NULL,
+	PurchasePrice TEXT NOT NULL,
+	StopPercent TEXT NOT NULL,
+	StopLastNotificationDate TEXT,
+	CONSTRAINT PK_StockOwned PRIMARY KEY (UserID, Symbol)
 )`); err != nil {
 		db.Close()
 		return
 	}
 
 	if _, err = db.Exec(`
-create index if not exists stock_track_ix on stock_track (
-	purchaser_email ASC,
-	symbol ASC
-)`); err != nil {
-		db.Close()
-		return
-	}
-
-	if _, err = db.Exec(`
-create table if not exists stock_history (
-	symbol TEXT NOT NULL,
-	date TEXT NOT NULL,
-	opening_price TEXT NOT NULL,
-	closing_price TEXT NOT NULL,
-	lowest_price TEXT NOT NULL,
-	highest_price TEXT NOT NULL,
-	volume INTEGER NOT NULL,
-	CONSTRAINT stock_history_pk PRIMARY KEY (symbol, date)
-)`); err != nil {
-		db.Close()
-		return
-	}
-
-	if _, err = db.Exec(`
-create index if not exists stock_history_ix on stock_history (
-	symbol ASC,
-	date DESC
+create index if not exists IX_StockOwned on StockOwned (
+	UserID ASC,
+	Symbol ASC,
+	IsStopEnabled,
+	PurchaseDate,
+	PurchasePrice
 )`); err != nil {
 		db.Close()
 		return
 	}
 
 	// Add some test data:
-	db.Execl(`
-insert or ignore into stock_track (symbol, purchaser_email, purchase_price, purchase_date, trailing_stop_percent)
-            values ('MSFT', 'email@example.org', '30.00', '2013-12-01', '2')`)
+	db.Execl(`insert or ignore into User (Email, Name, NotificationTimeout) values ('example@example.org', 'Example User', 15)`)
+	db.Execl(`insert or ignore into StockOwned (UserID, Symbol, IsStopEnabled, PurchaseDate, PurchasePrice, StopPercent) values (1, 'MSFT', 1, '2012-09-01', '30.00', '0.1');`)
 
 	return
 }
 
 type dbStock struct {
-	Symbol              string `db:"symbol"`
-	PurchasePrice       string `db:"purchase_price"`
-	PurchaseDate        string `db:"purchase_date"`
-	PurchaserEmail      string `db:"purchaser_email"`
-	TrailingStopPercent string `db:"trailing_stop_percent"`
+	UserID                  int    `db:"UserID"`
+	UserEmail               string `db:"UserEmail"`
+	UserName                string `db:"UserName"`
+	UserNotificationTimeout int    `db:"UserNotificationTimeout"` // timeout in seconds
+
+	StockOwnedID             int            `db:"StockOwnedID"`
+	Symbol                   string         `db:"Symbol"`
+	PurchasePrice            string         `db:"PurchasePrice"`
+	PurchaseDate             string         `db:"PurchaseDate"`
+	PurchaserEmail           string         `db:"PurchaserEmail"`
+	StopPercent              string         `db:"StopPercent"`
+	StopLastNotificationDate sql.NullString `db:"StopLastNotificationDate"`
 }
 
 // ------------- main:
@@ -215,10 +356,8 @@ func main() {
 
 	// Get the New York location for stock timezone:
 	nyLoc, _ := time.LoadLocation("America/New_York")
-	//fmt.Println(nyLoc)
 
 	// Create our DB file and its schema:
-	//os.Remove(dbPath)
 	db, err := db_create_schema(dbPath)
 	if err != nil {
 		log.Fatalln(err)
@@ -229,56 +368,89 @@ func main() {
 	// Query stocks table:
 	stocks := make([]dbStock, 0, 4) // make(type, len, capacity)
 	if err = db.Select(&stocks, `
-select s.symbol, s.purchase_price, s.purchase_date, s.purchaser_email, s.trailing_stop_percent
-from stock_track as s`); err != nil {
+select s.UserID, u.Email as UserEmail, u.Name as UserName, u.NotificationTimeout AS UserNotificationTimeout
+     , s.rowid as StockOwnedID, s.Symbol, s.PurchaseDate, s.PurchasePrice, s.StopPercent, s.StopLastNotificationDate
+from StockOwned as s
+join User as u on u.rowid = s.UserID
+where s.IsStopEnabled = 1`); err != nil {
 		log.Fatalln(err)
+		return
 	}
 
-	today := toDate(time.Now().In(nyLoc))
-	fmt.Print("\n")
+	// Get today's date in NY time:
+	today := truncDate(time.Now().In(nyLoc))
+	//if today.Weekday() == 0 || today.Weekday() == 6 {
+	//	// We don't work on weekends.
+	//	log.Printf("No work to do on weekends.")
+	//	return
+	//}
+
+	// Find the last weekday trading date:
+	// NOTE(jsd): Might screw up around DST changeover dates; who cares.
+	yesterday := today.Add(time.Hour * time.Duration(-24))
+	for yesterday.Weekday() == 0 || yesterday.Weekday() == 6 {
+		yesterday = yesterday.Add(time.Hour * time.Duration(-24))
+	}
+
+	// Run through each actively tracked stock and calculate stopping prices, notify next of kin, what have you...
+	log.Printf("%d stocks tracked.\n", len(stocks))
 	for _, st := range stocks {
-		//fmt.Printf("  %#v\n", st)
-
+		// NOTE(jsd): Stock dates/times are in NYC timezone.
 		purchaseDate, _ := time.Parse(dateFmt, st.PurchaseDate)
-		fmt.Printf("'%s' purchased by <%s> on %s for %s with %s%% trailing stop\n", st.Symbol, st.PurchaserEmail, purchaseDate.Format(dateFmt), toRat(st.PurchasePrice).FloatString(2), toRat(st.TrailingStopPercent).FloatString(2))
 
-		// Stock times/dates are in NYC timezone:
-		yesterday := today.Add(time.Duration(time.Hour * 24 * -1))
+		now := time.Now()
 
-		// Determine the last-fetched date for the stock:
+		log.Printf("'%s' purchased by %s <%s> on %s for %s with %s%% trailing stop\n", st.Symbol, st.UserName, st.UserEmail, purchaseDate.Format(dateFmt), toRat(st.PurchasePrice).FloatString(2), toRat(st.StopPercent).FloatString(2))
+
+		// Determine the last-fetched date for the stock, assuming no holes exist in the dates:
 		var lastDate time.Time
-		ld, err := dbGetScalar(db, `select h.date from stock_history h where (h.symbol = ?) and (datetime(h.date) = (select max(datetime(date)) from stock_history where symbol = h.symbol))`, st.Symbol)
+		ld, err := dbGetScalar(db, `select h.Date from StockHistory h where (h.Symbol = ?) and (datetime(h.Date) = (select max(datetime(Date)) from StockHistory where Symbol = h.Symbol))`, st.Symbol)
 		if ld == nil {
-			// No row; use 7 days ago in NYC time:
-			lastDate = today.Add(time.Duration(time.Hour * 24 * -7))
+			// No rows; fetch all the way back to purchase date
+			lastDate = purchaseDate
 		} else {
 			// Extract the last-fetched date from the db record, assuming NYC time:
-			lastDate, _ = time.ParseInLocation(time.RFC3339, ld.(string), nyLoc)
-			lastDate = toDate(lastDate)
+			lastDate = truncDate(toDateTime(ld.(string), nyLoc))
 		}
-		//fmt.Println(yesterday.Format("2006-01-02 15:04:05 -0700"))
-		//fmt.Println(lastDate.Format("2006-01-02 15:04:05 -0700"))
+
+		// Start fetching the current stock price from Yahoo! Finance:
+		taskCurrPrice := make(chan *big.Rat)
+		go func(query string) {
+			log.Printf("  Fetching current trading price...\n")
+
+			quot := make([]yqlQuote, 0, 1)
+			err := yql(&quot, query)
+			if err != nil {
+				log.Println(err)
+				taskCurrPrice <- nil
+				return
+			}
+			log.Printf("  Fetched current trading price.\n")
+
+			taskCurrPrice <- toRat(quot[0].LastTradePriceOnly)
+		}(`select LastTradePriceOnly from yahoo.finance.quote where symbol = "` + st.Symbol + `"`)
+
+		log.Printf("  Last trading date: %s\n", yesterday.Format(dateFmt))
+		log.Printf("  Last date fetched: %s\n", lastDate.Format(dateFmt))
 
 		// Fetch the last few days' worth of historical data if we need to:
-		fmt.Printf("  Yesterday's date:  %s\n", lastDate.Format(dateFmt))
-		fmt.Printf("  Last date fetched: %s\n", lastDate.Format(dateFmt))
 		if lastDate.Before(yesterday) {
 			// Fetch the last few days' worth of data:
-			fmt.Printf("  Fetching historical data since %s...\n", lastDate.Format(dateFmt))
+			log.Printf("  Fetching historical data since %s...\n", lastDate.Format(dateFmt))
 
 			// TODO(jsd): YQL parameter escaping!
 			yqlHistQuery := `select Symbol, Date, Open, Close, High, Low, Volume from yahoo.finance.historicaldata where symbol = "` + st.Symbol + `" and startDate = "` + lastDate.Format(dateFmt) + `" and endDate = "` + yesterday.Format(dateFmt) + `"`
 
-			hist := new(HistoricalResponse)
-			if err = yql(hist, yqlHistQuery); err != nil {
+			hist := make([]yqlHistory, 0, 10)
+			if err = yql(&hist, yqlHistQuery); err != nil {
 				log.Println(err)
 				continue
 			}
-			fmt.Printf("  Fetched.\n")
+			log.Printf("  Fetched historical data.\n")
 
 			// Insert historical records into the DB:
-			fmt.Printf("  Recording...\n")
-			for _, q := range hist.Query.Results.Quote {
+			log.Printf("  Recording...\n")
+			for _, q := range hist {
 				// Store dates as RFC3339 in the NYC timezone:
 				date, err := time.ParseInLocation(dateFmt, q.Date, nyLoc)
 				if err != nil {
@@ -288,86 +460,107 @@ from stock_track as s`); err != nil {
 
 				// Insert the history record; log any errors:
 				db.Execl(
-					`insert into stock_history (symbol, date, opening_price, closing_price, highest_price, lowest_price, volume) values (?,?,?,?,?,?,?)`,
+					`insert into StockHistory (Symbol, Date, Closing, Opening, High, Low, Volume) values (?,?,?,?,?,?,?)`,
 					st.Symbol,
 					date.Format(time.RFC3339),
-					q.Open,
 					q.Close,
+					q.Open,
 					q.High,
 					q.Low,
 					q.Volume,
 				)
 			}
-			fmt.Printf("  Recorded.\n")
+			log.Printf("  Recorded.\n")
 		}
 
-		// Get the current stock price from Yahoo! Finance:
-		var currPrice *big.Rat
-
-		// TODO(jsd): Remove this `if true/false` business for release.
-		if true {
-			fmt.Printf("  Fetching current trading price...\n")
-			quot := new(QuoteResponse)
-			err = yql(quot, `select LastTradePriceOnly from yahoo.finance.quote where symbol = "`+st.Symbol+`"`)
-			if err != nil {
-				log.Println(err)
-				continue
-			}
-			fmt.Printf("  Fetched.\n")
-
-			currPrice = toRat(quot.Query.Results.Quote.LastTradePriceOnly)
-		} else {
-			// HACK(jsd): Useful for testing
-			currPrice = toRat("29.00")
+		// Determine the highest and lowest closing price from historical data:
+		maxmin, err := dbGetScalars(db, `select max(cast(Closing as real)), min(cast(Closing as real)) from StockHistory where Symbol = ?`, st.Symbol)
+		if err == sql.ErrNoRows {
+			maxmin = []interface{}{"", ""}
+		} else if err != nil {
+			log.Println(err)
+			continue
 		}
+		highestPrice, lowestPrice := toRat(maxmin[0].(string)), toRat(maxmin[1].(string))
 
-		// Determine the highest closing price from historical data:
-		// TODO(jsd): Limited date range for max()?
-		highestClosingPriceStr, err := dbGetScalar(db, `select max(cast(closing_price as real)) from stock_history where symbol = ?`, st.Symbol)
-		if err != nil {
-			if err == sql.ErrNoRows {
-				continue
-			}
-			log.Fatalln(err)
-			return
+		// Calculate long running averages:
+		avgs, err := dbGetScalars(db, `
+select (select avg(cast(Closing as real)) from StockHistory where Symbol = ? and (datetime(Date) between datetime('now', '-50 days') and datetime('now'))) as avg50,
+       (select avg(cast(Closing as real)) from StockHistory where Symbol = ? and (datetime(Date) between datetime('now','-200 days') and datetime('now'))) as avg200`, st.Symbol, st.Symbol)
+		if err == sql.ErrNoRows {
+			avgs = []interface{}{"", ""}
+		} else if err != nil {
+			log.Println(err)
+			continue
 		}
-		highestPrice := toRat(highestClosingPriceStr.(string))
+		avg50, avg200 := toRat(avgs[0].(string)), toRat(avgs[1].(string))
 
 		// stopPrice = ((100 - stopPercent) * 0.01) * highestPrice
-		stopPrice := new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Sub(toRat("100"), toRat(st.TrailingStopPercent)), toRat("0.01"))), highestPrice)
+		stopPrice := new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Sub(toRat("100"), toRat(st.StopPercent)), toRat("0.01"))), highestPrice)
 
-		fmt.Printf("  Highest closing price: %s\n", highestPrice.FloatString(2))
-		fmt.Printf("  Stopping price:        %s\n", stopPrice.FloatString(2))
-		fmt.Printf("  Current price:         %s\n", currPrice.FloatString(2))
+		// Wait for current price data to come back:
+		currPrice := <-taskCurrPrice
+		if currPrice == nil {
+			log.Printf("  Error while fetching current trading price.")
+			continue
+		}
+
+		log.Println()
+		log.Printf("  Highest closing price:  %s\n", highestPrice.FloatString(2))
+		log.Printf("  Lowest closing price:   %s\n", lowestPrice.FloatString(2))
+		log.Printf("  50-day moving average:  %s\n", avg50.FloatString(2))
+		log.Printf("  200-day moving average: %s\n", avg200.FloatString(2))
+		log.Println()
+		log.Printf("  Current price:  %s\n", currPrice.FloatString(2))
+		log.Printf("  Stopping price: %s\n", stopPrice.FloatString(2))
+		log.Println()
 
 		if currPrice.Cmp(stopPrice) <= 0 {
 			// Current price has fallen below stopping price!
+			log.Println("  ALERT: Current price has fallen below stop price!")
 
-			// TODO(jsd): check DB to see if notification already sent!
+			// Check DB to see if notification already sent:
+			nextDeliveryTime := toDateTime(st.StopLastNotificationDate.String, nil).Add(time.Duration(st.UserNotificationTimeout) * time.Second)
+			if !st.StopLastNotificationDate.Valid || now.After(nextDeliveryTime) {
+				log.Printf("  Delivering notification email to %s <%s>...\n", st.UserName, st.UserEmail)
 
-			fmt.Println("  ALERT!")
-			from := mail.Address{st.Symbol + "-watcher", "stock.watcher." + st.Symbol + "@bittwiddlers.org"}
-			to := mail.Address{st.PurchaserEmail, st.PurchaserEmail}
-			subject := st.Symbol + " price fell below " + stopPrice.FloatString(2)
-			body := fmt.Sprintf(`<html><body>%s current price %s just fell below stop price %s</body></html>`, st.Symbol, currPrice.FloatString(2), stopPrice.FloatString(2))
+				// TODO(jsd): This is all overly complicated for just sending an email. Wrap this nonsense up in convenience methods.
+				from := mail.Address{"stock-watcher-" + st.Symbol, "stock.watcher." + st.Symbol + "@bittwiddlers.org"}
+				to := mail.Address{st.UserName, st.UserEmail}
+				subject := st.Symbol + " price fell below " + stopPrice.FloatString(2)
+				body := fmt.Sprintf(`<html><body>%s current price %s just fell below stop price %s</body></html>`, st.Symbol, currPrice.FloatString(2), stopPrice.FloatString(2))
 
-			// make header map:
-			header := make(map[string]string)
-			header["From"] = from.String()
-			header["To"] = to.String()
-			header["Subject"] = subject
-			header["Date"] = time.Now().In(nyLoc).Format(time.RFC1123Z)
-			header["Content-Type"] = `text/html; charset="UTF-8"`
+				// Describe the mail headers:
+				header := make(map[string]string)
+				header["From"] = from.String()
+				header["To"] = to.String()
+				header["Subject"] = subject
+				header["Date"] = time.Now().In(nyLoc).Format(time.RFC1123Z)
+				// TODO(jsd): use 'text/plain' as an alternative.
+				header["Content-Type"] = `text/html; charset="UTF-8"`
 
-			// setup the message:
-			message := ""
-			for k, v := range header {
-				message += fmt.Sprintf("%s: %s\r\n", k, v)
-			}
-			message += "\r\n" + body
+				// Build the formatted message body:
+				message := ""
+				for k, v := range header {
+					message += fmt.Sprintf("%s: %s\r\n", k, v)
+				}
+				message += "\r\n" + body
 
-			if err = smtp.SendMail("localhost:25", nil, from.Address, []string{to.Address}, []byte(message)); err != nil {
-				log.Println(err)
+				// Deliver email:
+				if err = smtp.SendMail("localhost:25", nil, from.Address, []string{to.Address}, []byte(message)); err != nil {
+					log.Println(err)
+					log.Printf("  Failed delivering notification email.\n")
+				} else {
+					log.Printf("  Delivered notification email.\n")
+					// Successfully delivered email as far as we know; record last delivery date/time:
+					db.Execl(
+						`update StockOwned set StopLastNotificationDate = ? where rowid = ?`,
+						now.Format(time.RFC3339),
+						st.StockOwnedID,
+					)
+				}
+			} else {
+				log.Printf("  Not delivering notification email due to anti-spam timeout; next delivery after %s\n", nextDeliveryTime.Format(time.RFC3339))
 			}
 		}
 	}
