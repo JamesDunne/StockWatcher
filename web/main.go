@@ -1,22 +1,16 @@
 package main
 
 import (
-	//"bufio"
-	//"fmt"
-	//"io"
-	//"path/filepath"
-	//	"ioutil"
+	"encoding/json"
 	"flag"
 	"log"
-	//"mime"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
-	//"path"
-	//"strconv"
 	"syscall"
+	"time"
 )
 
 import openid "github.com/JamesDunne/go-openid"
@@ -24,6 +18,12 @@ import openid "github.com/JamesDunne/go-openid"
 // openid authentication store: (total crap; leaks memory - replace)
 var nonceStore = &openid.SimpleNonceStore{Store: make(map[string][]*openid.Nonce)}
 var discoveryCache = &openid.SimpleDiscoveryCache{}
+
+type UserCookieData struct {
+	Email string `json:"email"`
+	First string `json:"first"`
+	Last  string `json:"last"`
+}
 
 // Handles /auth/* requests:
 func authHandler(w http.ResponseWriter, r *http.Request) {
@@ -54,34 +54,99 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+
 	case "/openid":
 		// Redirected from openid provider to here:
 		verifyUrl := &url.URL{Scheme: "http", Host: r.Host, Path: "auth" + r.URL.Path, RawQuery: r.URL.RawQuery}
 		verify := verifyUrl.String()
 		log.Println(verify)
 
-		id, err := openid.Verify(verify, discoveryCache, nonceStore)
-		if err != nil {
+		// Don't care about the `id` coming back; it's useless.
+		if _, err := openid.Verify(verify, discoveryCache, nonceStore); err != nil {
 			log.Println(err)
 			http.Error(w, "Not Authorized", http.StatusUnauthorized)
 			return
 		}
-		log.Println(id)
 
-		// Extract useful user information from query string:
+		// Extract the much more useful user information from the query string:
 		q, err := url.ParseQuery(r.URL.RawQuery)
 		if err != nil {
-			http.Error(w, "Could not parse query", http.StatusInternalServerError)
+			log.Println(err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-
 		log.Println(q)
-		log.Printf("%s %s <%s>\n", q.Get("openid.ext1.value.firstname"), q.Get("openid.ext1.value.lastname"), q.Get("openid.ext1.value.email"))
+
+		// Create user data JSON for cookie:
+		userData := &UserCookieData{
+			Email: q.Get("openid.ext1.value.email"),
+			First: q.Get("openid.ext1.value.firstname"),
+			Last:  q.Get("openid.ext1.value.lastname"),
+		}
+		userJsonBytes, err := json.Marshal(userData)
+		if err != nil {
+			log.Println(err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		log.Println(string(userJsonBytes))
+
+		// Set authentication cookie:
+		authCookie := &http.Cookie{
+			Name:    "auth",
+			Path:    "/",
+			Expires: time.Now().Add(time.Hour * time.Duration(24*14)),
+			Value:   url.QueryEscape(string(userJsonBytes)),
+		}
+		http.SetCookie(w, authCookie)
+		http.Redirect(w, r, "/ui/dash", http.StatusFound)
 		return
 	}
 }
 
-// Handles /api/* requests:
+// Handler to require authentication cookie:
+type requireAuthHandler struct {
+	handler http.Handler
+}
+
+func RequireAuth(h http.Handler) requireAuthHandler {
+	return requireAuthHandler{handler: h}
+}
+
+func (h requireAuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	authCookie, err := r.Cookie("auth")
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Not Authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	userJsonStr, err := url.QueryUnescape(authCookie.Value)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Not Authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// TODO(jsd): Need a place to store user details for the request context!
+	log.Println(userJsonStr)
+	_ = userJsonStr
+
+	// Pass to the next handler in the chain:
+	h.handler.ServeHTTP(w, r)
+}
+
+// ----------------------- Secured section:
+
+// Handles /ui/* requests to present HTML UI to the user:
+func uiHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/dash":
+		// Dashboard UI
+	}
+}
+
+// Handles /api/* requests for JSON API:
 func apiHandler(w http.ResponseWriter, r *http.Request) {
 
 }
@@ -121,12 +186,15 @@ func main() {
 	}(sigc)
 
 	// Declare HTTP handlers:
-
-	// All "/api/" requests are special JSON handlers
 	http.Handle("/auth/", http.StripPrefix("/auth", http.HandlerFunc(authHandler)))
-	http.Handle("/api/", http.StripPrefix("/api", http.HandlerFunc(apiHandler)))
+
+	// Secured section:
+	http.Handle("/ui/", RequireAuth(http.StripPrefix("/ui", http.HandlerFunc(uiHandler))))
+	http.Handle("/api/", RequireAuth(http.StripPrefix("/api", http.HandlerFunc(apiHandler))))
+
+	// Catch-all handler to serve static files:
 	http.Handle("/", http.FileServer(http.Dir("./root/")))
 
-	// Start the HTTP server:
+	// Start the HTTP server and block until killed:
 	log.Fatal(http.Serve(l, nil))
 }
