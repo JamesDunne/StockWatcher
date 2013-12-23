@@ -11,7 +11,7 @@ import (
 	//"mime"
 	"net"
 	"net/http"
-	//"net/url"
+	"net/url"
 	"os"
 	"os/signal"
 	//"path"
@@ -19,7 +19,7 @@ import (
 	"syscall"
 )
 
-import "github.com/JamesDunne/go-openid"
+import openid "github.com/JamesDunne/go-openid"
 
 // openid authentication store: (total crap; leaks memory - replace)
 var nonceStore = &openid.SimpleNonceStore{Store: make(map[string][]*openid.Nonce)}
@@ -28,7 +28,7 @@ var discoveryCache = &openid.SimpleDiscoveryCache{}
 // Handles /auth/* requests:
 func authHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
-	case "login":
+	case "/login":
 		if r.Method == "GET" {
 			http.ServeFile(w, r, "index.html")
 			return
@@ -36,24 +36,47 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 			// Redirect to openid provider and instruct them to come back here at /auth/openid:
 			if url, err := openid.RedirectUrl(
 				r.FormValue("id"),
-				"http://"+r.URL.Host+"/auth/openid",
-				""); err == nil {
+				"http://"+r.Host+"/auth/openid",
+				"",
+				map[string]string{
+					"openid.ns.ax":             "http://openid.net/srv/ax/1.0",
+					"openid.ax.mode":           "fetch_request",
+					"openid.ax.required":       "firstname,lastname,username,language,email",
+					"openid.ax.type.username":  "http://axschema.org/namePerson/friendly",
+					"openid.ax.type.language":  "http://axschema.org/pref/language",
+					"openid.ax.type.lastname":  "http://axschema.org/namePerson/last",
+					"openid.ax.type.firstname": "http://axschema.org/namePerson/first",
+					"openid.ax.type.email":     "http://axschema.org/contact/email",
+				}); err == nil {
 				http.Redirect(w, r, url, 303)
 			} else {
 				log.Print(err)
 			}
 			return
 		}
-	case "openid":
+	case "/openid":
 		// Redirected from openid provider to here:
-		fullUrl := "http://" + r.Host + r.URL.String()
-		log.Print(fullUrl)
-		id, err := openid.Verify(fullUrl, discoveryCache, nonceStore)
+		verifyUrl := &url.URL{Scheme: "http", Host: r.Host, Path: "auth" + r.URL.Path, RawQuery: r.URL.RawQuery}
+		verify := verifyUrl.String()
+		log.Println(verify)
+
+		id, err := openid.Verify(verify, discoveryCache, nonceStore)
 		if err != nil {
 			log.Println(err)
-			http.Error(w, "Not Authorized", 401)
+			http.Error(w, "Not Authorized", http.StatusUnauthorized)
+			return
 		}
 		log.Println(id)
+
+		// Extract useful user information from query string:
+		q, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			http.Error(w, "Could not parse query", http.StatusInternalServerError)
+			return
+		}
+
+		log.Println(q)
+		log.Printf("%s %s <%s>\n", q.Get("openid.ext1.value.firstname"), q.Get("openid.ext1.value.lastname"), q.Get("openid.ext1.value.email"))
 		return
 	}
 }
@@ -100,8 +123,8 @@ func main() {
 	// Declare HTTP handlers:
 
 	// All "/api/" requests are special JSON handlers
-	http.Handle("/auth/", http.StripPrefix("/auth/", http.HandlerFunc(authHandler)))
-	http.Handle("/api/", http.StripPrefix("/api/", http.HandlerFunc(apiHandler)))
+	http.Handle("/auth/", http.StripPrefix("/auth", http.HandlerFunc(authHandler)))
+	http.Handle("/api/", http.StripPrefix("/api", http.HandlerFunc(apiHandler)))
 	http.Handle("/", http.FileServer(http.Dir("./root/")))
 
 	// Start the HTTP server:
