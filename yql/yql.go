@@ -92,9 +92,10 @@ func yqlExtractResponse(body []byte, results interface{}, structType reflect.Typ
 
 type yqlResponse struct {
 	Query struct {
-		Count       int                    `json:"count"`
-		CreatedDate string                 `json:"created"`
-		Results     map[string]interface{} `json:"results"`
+		Count       int    `json:"count"`
+		CreatedDate string `json:"created"`
+		// TODO(jsd): Use `*json.RawMessage` type instead.
+		Results map[string]interface{} `json:"results"`
 	} `json:"query"`
 }
 
