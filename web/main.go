@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
+	openid "github.com/JamesDunne/go-openid"
 	"log"
 	"net"
 	"net/http"
@@ -13,7 +15,7 @@ import (
 	"time"
 )
 
-import openid "github.com/JamesDunne/go-openid"
+var fsRoot = "./root/"
 
 // openid authentication store: (total crap; leaks memory - replace)
 var nonceStore = &openid.SimpleNonceStore{Store: make(map[string][]*openid.Nonce)}
@@ -25,12 +27,45 @@ type UserCookieData struct {
 	Last  string `json:"last"`
 }
 
+func setAuthCookie(w http.ResponseWriter, userData *UserCookieData) {
+	if userData == nil {
+		panic("setAuthCookie: userData cannot be nil!")
+	}
+
+	userJsonBytes, err := json.Marshal(userData)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Set authentication cookie:
+	authCookie := &http.Cookie{
+		Name:    "auth",
+		Path:    "/",
+		Expires: time.Now().Add(time.Hour * time.Duration(24*14)),
+		Value:   url.QueryEscape(string(userJsonBytes)),
+	}
+	http.SetCookie(w, authCookie)
+}
+
+func clearAuthCooke(w http.ResponseWriter) {
+	authCookie := &http.Cookie{
+		Name:    "auth",
+		Path:    "/",
+		Expires: time.Now().Add(time.Hour * time.Duration(24*-2)),
+		Value:   "",
+	}
+	http.SetCookie(w, authCookie)
+}
+
 // Handles /auth/* requests:
 func authHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/login":
 		if r.Method == "GET" {
-			http.ServeFile(w, r, "index.html")
+			// Present login page:
+			http.ServeFile(w, r, fsRoot+"login.html")
 			return
 		} else if r.Method == "POST" {
 			// Redirect to openid provider and instruct them to come back here at /auth/openid:
@@ -48,21 +83,25 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 					"openid.ax.type.firstname": "http://axschema.org/namePerson/first",
 					"openid.ax.type.email":     "http://axschema.org/contact/email",
 				}); err == nil {
-				http.Redirect(w, r, url, 303)
+				http.Redirect(w, r, url, http.StatusSeeOther)
 			} else {
 				log.Print(err)
 			}
 			return
 		}
 
+	case "/logout":
+		// Logout simply removes the auth cookie and redirects to '/auth/login':
+		clearAuthCooke(w)
+		http.Redirect(w, r, "/auth/login", http.StatusFound)
+		return
+
 	case "/openid":
 		// Redirected from openid provider to here:
-		verifyUrl := &url.URL{Scheme: "http", Host: r.Host, Path: "auth" + r.URL.Path, RawQuery: r.URL.RawQuery}
-		verify := verifyUrl.String()
-		log.Println(verify)
+		verifyUrl := (&url.URL{Scheme: "http", Host: r.Host, Path: "auth" + r.URL.Path, RawQuery: r.URL.RawQuery}).String()
 
 		// Don't care about the `id` coming back; it's useless.
-		if _, err := openid.Verify(verify, discoveryCache, nonceStore); err != nil {
+		if _, err := openid.Verify(verifyUrl, discoveryCache, nonceStore); err != nil {
 			log.Println(err)
 			http.Error(w, "Not Authorized", http.StatusUnauthorized)
 			return
@@ -75,7 +114,6 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		log.Println(q)
 
 		// Create user data JSON for cookie:
 		userData := &UserCookieData{
@@ -83,22 +121,11 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 			First: q.Get("openid.ext1.value.firstname"),
 			Last:  q.Get("openid.ext1.value.lastname"),
 		}
-		userJsonBytes, err := json.Marshal(userData)
-		if err != nil {
-			log.Println(err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		log.Println(string(userJsonBytes))
 
 		// Set authentication cookie:
-		authCookie := &http.Cookie{
-			Name:    "auth",
-			Path:    "/",
-			Expires: time.Now().Add(time.Hour * time.Duration(24*14)),
-			Value:   url.QueryEscape(string(userJsonBytes)),
-		}
-		http.SetCookie(w, authCookie)
+		setAuthCookie(w, userData)
+
+		// Redirect to dashboard:
 		http.Redirect(w, r, "/ui/dash", http.StatusFound)
 		return
 	}
@@ -114,41 +141,95 @@ func RequireAuth(h http.Handler) requireAuthHandler {
 }
 
 func (h requireAuthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	authCookie, err := r.Cookie("auth")
+	// Require that the 'auth' cookie be set:
+	_, err := r.Cookie("auth")
 	if err != nil {
 		log.Println(err)
 		http.Error(w, "Not Authenticated", http.StatusUnauthorized)
 		return
+	}
+
+	// TODO: need to verify cookie not expired?
+
+	// Handlers further down the chain should use `getUserData` to decode the auth cookie
+	// and get user info.
+
+	// Pass to the next handler in the chain:
+	h.handler.ServeHTTP(w, r)
+}
+
+func isAuthenticated(r *http.Request) bool {
+	_, err := r.Cookie("auth")
+	if err != nil {
+		return false
+	}
+
+	return true
+}
+
+// Utility function to get authenticated user data:
+func getUserData(r *http.Request) (userData *UserCookieData) {
+	authCookie, err := r.Cookie("auth")
+	if err != nil {
+		log.Println(err)
+		return nil
 	}
 
 	userJsonStr, err := url.QueryUnescape(authCookie.Value)
 	if err != nil {
 		log.Println(err)
-		http.Error(w, "Not Authenticated", http.StatusUnauthorized)
-		return
+		return nil
 	}
 
-	// TODO(jsd): Need a place to store user details for the request context!
-	log.Println(userJsonStr)
-	_ = userJsonStr
+	userData = new(UserCookieData)
+	if err = json.Unmarshal([]byte(userJsonStr), userData); err != nil {
+		log.Println(err)
+		return nil
+	}
 
-	// Pass to the next handler in the chain:
-	h.handler.ServeHTTP(w, r)
+	return
 }
 
 // ----------------------- Secured section:
 
 // Handles /ui/* requests to present HTML UI to the user:
 func uiHandler(w http.ResponseWriter, r *http.Request) {
+	// Get authenticated user data:
+	user := getUserData(r)
+
 	switch r.URL.Path {
 	case "/dash":
 		// Dashboard UI
+		_ = user
+		w.WriteHeader(200)
+		w.Write([]byte(fmt.Sprintf("Welcome, %s %s <%s>!", user.First, user.Last, user.Email)))
+		return
 	}
 }
 
 // Handles /api/* requests for JSON API:
 func apiHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO
+}
 
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	// Root page redirects to /auth/login if unauthenticated:
+	if r.URL.Path == "/" {
+		if isAuthenticated(r) {
+			// UI dashboard:
+			http.Redirect(w, r, "/ui/dash", http.StatusFound)
+		} else {
+			// Login page:
+			http.Redirect(w, r, "/auth/login", http.StatusFound)
+		}
+		return
+	}
+
+	// TODO: is this wise? Probably not.
+	//http.ServeFile(w, r, r.URL.Path)
+
+	// 404 as a catch-all:
+	http.NotFound(w, r)
 }
 
 func main() {
@@ -186,14 +267,19 @@ func main() {
 	}(sigc)
 
 	// Declare HTTP handlers:
+
+	// Authentication section:
 	http.Handle("/auth/", http.StripPrefix("/auth", http.HandlerFunc(authHandler)))
+
+	// For serving static files:
+	http.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir(fsRoot))))
 
 	// Secured section:
 	http.Handle("/ui/", RequireAuth(http.StripPrefix("/ui", http.HandlerFunc(uiHandler))))
 	http.Handle("/api/", RequireAuth(http.StripPrefix("/api", http.HandlerFunc(apiHandler))))
 
-	// Catch-all handler to serve static files:
-	http.Handle("/", http.FileServer(http.Dir("./root/")))
+	// Catch-all handler:
+	http.Handle("/", http.HandlerFunc(rootHandler))
 
 	// Start the HTTP server and block until killed:
 	log.Fatal(http.Serve(l, nil))
