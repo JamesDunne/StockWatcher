@@ -13,10 +13,38 @@ import (
 	//"time"
 )
 
+// sqlite related imports:
+import (
+	"database/sql"
+	//"github.com/jmoiron/sqlx"
+	_ "github.com/mattn/go-sqlite3"
+)
+
+// Our own packages:
+import (
+	//"github.com/JamesDunne/StockWatcher/dbutil"
+	//"github.com/JamesDunne/StockWatcher/mailutil"
+	"github.com/JamesDunne/StockWatcher/stocksdb"
+)
+
 // Where to serve static files from:
 var fsRoot = "./root/"
+var dbPath string
 
 // ----------------------- Secured section:
+
+// DB record from StockOwned join User:
+type dbStock struct {
+	UserID                  int `db:"UserID"`
+	UserNotificationTimeout int `db:"UserNotificationTimeout"` // timeout in seconds
+
+	StockOwnedID             int            `db:"StockOwnedID"`
+	Symbol                   string         `db:"Symbol"`
+	PurchasePrice            string         `db:"PurchasePrice"`
+	PurchaseDate             string         `db:"PurchaseDate"`
+	StopPercent              string         `db:"StopPercent"`
+	StopLastNotificationDate sql.NullString `db:"StopLastNotificationDate"`
+}
 
 // Handles /ui/* requests to present HTML UI to the user:
 func uiHandler(w http.ResponseWriter, r *http.Request) {
@@ -25,8 +53,30 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch r.URL.Path {
 	case "/dash":
-		// Dashboard UI
+		// Dashboard UI:
+		db, err := stocksdb.Open(dbPath)
+		if err != nil {
+			log.Println(err)
+			http.Error(w, "Could not open stocks database!", http.StatusInternalServerError)
+			return
+		}
+		defer db.Close()
 
+		// Query what stocks are purchased by this user:
+		stocks := make([]dbStock, 0, 4) // make(type, len, capacity)
+		if err = db.Select(&stocks, `
+select s.UserID, u.NotificationTimeout AS UserNotificationTimeout
+     , s.rowid as StockOwnedID, s.Symbol, s.PurchaseDate, s.PurchasePrice, s.StopPercent, s.StopLastNotificationDate
+from StockOwned as s
+join User as u on u.rowid = s.UserID
+where s.IsStopEnabled = 1
+  and u.Email = ?1`, user.Email); err != nil {
+			log.Println(err)
+			http.Error(w, "Query failed!", http.StatusInternalServerError)
+			return
+		}
+
+		// Render an HTML response:
 		w.Header().Set("Content-Type", `text/html; charset="utf-8"`)
 		w.WriteHeader(200)
 
@@ -35,12 +85,16 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 <html>
 <body>
 <h3>Welcome, %s %s &lt;%s&gt;!</h3>
+<p>These are your purchased stocks:<br>
+%+v
+</p>
 Click <a href="/auth/logout">here</a> to log out.
 </body>
 </html>`,
 			user.First,
 			user.Last,
 			user.Email,
+			stocks,
 		)))
 		return
 	}
@@ -80,9 +134,15 @@ func main() {
 	// Define our commandline flags:
 	socketType := flag.String("t", "tcp", "socket type to listen on: 'unix', 'tcp', 'udp'")
 	socketAddr := flag.String("l", ":8080", "address to listen on")
+	root := flag.String("fs", "./root", "Root directory of static files to serve")
+	dbPathArg := flag.String("db", "./stocks.db", "Path to stocks.db database")
+	mailServerArg := flag.String("mail-server", "localhost:25", "Address of SMTP server to use for sending email")
 
 	// Parse the flags and set values:
 	flag.Parse()
+	fsRoot = *root
+	dbPath = *dbPathArg
+	_ = *mailServerArg
 
 	// Create the socket to listen on:
 	l, err := net.Listen(*socketType, *socketAddr)

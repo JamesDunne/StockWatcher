@@ -5,6 +5,8 @@ import "time"
 import "net/mail"
 import "net/smtp"
 
+var Server = "localhost:25"
+
 func SendHtmlMessage(from, to mail.Address, subject, body string) (err error) {
 	// Describe the mail headers:
 	headers := make(map[string]string)
@@ -23,6 +25,6 @@ func SendHtmlMessage(from, to mail.Address, subject, body string) (err error) {
 	message += "\r\n" + body
 
 	// Deliver email:
-	err = smtp.SendMail("localhost:25", nil, from.Address, []string{to.Address}, []byte(message))
+	err = smtp.SendMail(Server, nil, from.Address, []string{to.Address}, []byte(message))
 	return
 }

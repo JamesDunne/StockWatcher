@@ -3,8 +3,8 @@ package stocksdb
 // sqlite related imports:
 import "github.com/jmoiron/sqlx"
 
-// Creates the DB schema for stocks:
-func CreateSchema(path string) (db *sqlx.DB, err error) {
+// Opens the DB and creates the table schema (if not exists):
+func Open(path string) (db *sqlx.DB, err error) {
 	// using sqlite 3.8.0 release
 	db, err = sqlx.Connect("sqlite3", path)
 	if err != nil {

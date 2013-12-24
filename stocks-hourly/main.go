@@ -9,24 +9,29 @@
 package main
 
 // general stuff:
-import "fmt"
-import "log"
-import "time"
-import "math/big"
-
-//import "os"
-
-import "net/mail"
+import (
+	"flag"
+	"fmt"
+	"log"
+	"math/big"
+	"net/mail"
+	"time"
+)
 
 // sqlite related imports:
-import "database/sql"
-import "github.com/jmoiron/sqlx"
-import _ "github.com/mattn/go-sqlite3"
+import (
+	"database/sql"
+	//"github.com/jmoiron/sqlx"
+	_ "github.com/mattn/go-sqlite3"
+)
 
-import "github.com/JamesDunne/StockWatcher/stocksdb"
-import "github.com/JamesDunne/StockWatcher/dbutil"
-import "github.com/JamesDunne/StockWatcher/yql"
-import "github.com/JamesDunne/StockWatcher/mailutil"
+// Our own packages:
+import (
+	"github.com/JamesDunne/StockWatcher/dbutil"
+	"github.com/JamesDunne/StockWatcher/mailutil"
+	"github.com/JamesDunne/StockWatcher/stocksdb"
+	"github.com/JamesDunne/StockWatcher/yql"
+)
 
 // ------------- Utility functions:
 
@@ -68,7 +73,6 @@ type dbStock struct {
 	Symbol                   string         `db:"Symbol"`
 	PurchasePrice            string         `db:"PurchasePrice"`
 	PurchaseDate             string         `db:"PurchaseDate"`
-	PurchaserEmail           string         `db:"PurchaserEmail"`
 	StopPercent              string         `db:"StopPercent"`
 	StopLastNotificationDate sql.NullString `db:"StopLastNotificationDate"`
 }
@@ -76,14 +80,22 @@ type dbStock struct {
 // ------------- main:
 
 func main() {
-	const dbPath = "./stocks.db"
 	const dateFmt = "2006-01-02"
+
+	// Define our commandline flags:
+	dbPathArg := flag.String("db", "../stocks-web/stocks.db", "Path to stocks.db database")
+	mailServerArg := flag.String("mail-server", "localhost:25", "Address of SMTP server to use for sending email")
+
+	// Parse the flags and set values:
+	flag.Parse()
+	dbPath := *dbPathArg
+	mailutil.Server = *mailServerArg
 
 	// Get the New York location for stock timezone:
 	nyLoc, _ := time.LoadLocation("America/New_York")
 
 	// Create our DB file and its schema:
-	db, err := stocksdb.CreateSchema(dbPath)
+	db, err := stocksdb.Open(dbPath)
 	if err != nil {
 		log.Fatalln(err)
 		return
@@ -91,12 +103,12 @@ func main() {
 	defer db.Close()
 
 	// Add some test data:
-	dbutil.Tx(db, func(tx *sqlx.Tx) (err error) {
-		db.Execl(`insert or ignore into User (Email, Name, NotificationTimeout) values ('example@example.org', 'Example User', 15)`)
-		db.Execl(`insert or ignore into StockOwned (UserID, Symbol, IsStopEnabled, PurchaseDate, PurchasePrice, StopPercent) values (1, 'MSFT', 1, '2012-09-01', '30.00', '0.1');`)
-		db.Execl(`insert or ignore into StockOwned (UserID, Symbol, IsStopEnabled, PurchaseDate, PurchasePrice, StopPercent) values (1, 'AAPL', 1, '2012-09-01', '400.00', '20.0');`)
-		return nil
-	})
+	//dbutil.Tx(db, func(tx *sqlx.Tx) (err error) {
+	//	db.Execl(`insert or ignore into User (Email, Name, NotificationTimeout) values ('example@example.org', 'Example User', 30)`)
+	//	db.Execl(`insert or ignore into StockOwned (UserID, Symbol, IsStopEnabled, PurchaseDate, PurchasePrice, StopPercent) values (1, 'MSFT', 1, '2012-09-01', '30.00', '1.0');`)
+	//	db.Execl(`insert or ignore into StockOwned (UserID, Symbol, IsStopEnabled, PurchaseDate, PurchasePrice, StopPercent) values (1, 'AAPL', 1, '2012-09-01', '400.00', '20.0');`)
+	//	return nil
+	//})
 
 	// Query stocks table:
 	stocks := make([]dbStock, 0, 4) // make(type, len, capacity)
