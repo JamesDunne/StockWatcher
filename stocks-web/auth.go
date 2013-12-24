@@ -2,11 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	openid "github.com/JamesDunne/go-openid"
 	"log"
 	"net/http"
 	"net/url"
 	"path"
+	"strings"
 	"time"
 )
 
@@ -19,9 +21,9 @@ var discoveryCache = &openid.SimpleDiscoveryCache{}
 
 // Stored user data in a cookie, encoded as JSON:
 type UserCookieData struct {
-	Email string `json:"email"`
-	First string `json:"first"`
-	Last  string `json:"last"`
+	Email    string `json:"email"`
+	FullName string `json:"full"`
+	TimeZone string `json:"tz"`
 }
 
 // Sets the authentication cookie:
@@ -76,12 +78,13 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 				map[string]string{
 					"openid.ns.ax":             "http://openid.net/srv/ax/1.0",
 					"openid.ax.mode":           "fetch_request",
-					"openid.ax.required":       "firstname,lastname,username,language,email",
-					"openid.ax.type.username":  "http://axschema.org/namePerson/friendly",
-					"openid.ax.type.language":  "http://axschema.org/pref/language",
+					"openid.ax.required":       "email,timezone,fullname,friendly,firstname,lastname",
+					"openid.ax.type.email":     "http://axschema.org/contact/email",
+					"openid.ax.type.timezone":  "http://axschema.org/pref/timezone",
+					"openid.ax.type.fullname":  "http://axschema.org/namePerson",
+					"openid.ax.type.friendly":  "http://axschema.org/namePerson/friendly",
 					"openid.ax.type.lastname":  "http://axschema.org/namePerson/last",
 					"openid.ax.type.firstname": "http://axschema.org/namePerson/first",
-					"openid.ax.type.email":     "http://axschema.org/contact/email",
 				}); err == nil {
 				http.Redirect(w, r, url, http.StatusSeeOther)
 			} else {
@@ -99,6 +102,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	case "/openid":
 		// Redirected from openid provider to here:
 		verifyUrl := (&url.URL{Scheme: "http", Host: WebHost, Path: path.Join("auth", r.URL.Path), RawQuery: r.URL.RawQuery}).String()
+		//log.Println(verifyUrl)
 
 		// Don't care about the `id` coming back; it's useless.
 		if _, err := openid.Verify(verifyUrl, discoveryCache, nonceStore); err != nil {
@@ -115,11 +119,100 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Create user data JSON for cookie:
+		// Search for the ax namespace alias; providers use different aliases:
+		var axAlias string
+		for key, valArray := range q {
+			if len(valArray) == 0 {
+				continue
+			}
+			val := valArray[0]
+
+			if strings.HasPrefix(key, "openid.ns.") && val == "http://openid.net/srv/ax/1.0" {
+				axAlias = strings.TrimPrefix(key, "openid.ns.")
+				break
+			}
+		}
+		if axAlias == "" {
+			log.Printf("Could not determine OpenID ax namespace alias from query string response!\n%#v\n", q)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Extract the ax attributes into a map:
+		nsTypePrefix := "openid." + axAlias + ".type."
+		nsValuePrefix := "openid." + axAlias + ".value."
+
+		// Create a map of aliases to namespaces based on 'openid.alias.type' values:
+		nses := make(map[string]string)
+		for key, valArray := range q {
+			if len(valArray) == 0 {
+				continue
+			}
+
+			if strings.HasPrefix(key, nsTypePrefix) {
+				alias := strings.TrimPrefix(key, nsTypePrefix)
+				ns := valArray[0]
+
+				nses[alias] = ns
+			}
+		}
+
+		// Create a map of namespaces to values based on 'openid.alias.value' values:
+		//log.Printf("ax:\n")
+		ax := make(map[string]string)
+		for key, valArray := range q {
+			if len(valArray) == 0 {
+				continue
+			}
+
+			if strings.HasPrefix(key, nsValuePrefix) {
+				alias := strings.TrimPrefix(key, nsValuePrefix)
+				ns := nses[alias]
+				val := valArray[0]
+
+				ax[ns] = val
+
+				//log.Printf("  %s: '%s'\n", strings.TrimPrefix(ns, "http://axschema.org/"), val)
+			}
+		}
+
+		// This is the map of namespaces to aliases:
+		//  "http://axschema.org/contact/email":        "email"
+		//  "http://axschema.org/pref/timezone":        "timezone"
+		//  "http://axschema.org/namePerson":           "fullname"
+		//  "http://axschema.org/namePerson/friendly":  "friendly"
+		//  "http://axschema.org/namePerson/last":      "lastname"
+		//  "http://axschema.org/namePerson/first":     "firstname"
+
+		// Create user data struct for auth cookie:
 		userData := &UserCookieData{
-			Email: q.Get("openid.ext1.value.email"),
-			First: q.Get("openid.ext1.value.firstname"),
-			Last:  q.Get("openid.ext1.value.lastname"),
+			Email:    ax["http://axschema.org/contact/email"],
+			TimeZone: ax["http://axschema.org/pref/timezone"],
+		}
+
+		// Determine full name using some stupid rules because Google only provides first/last name and Yahoo only provides full name.
+		// Other OpenID providers may do even more stupid things; I haven't tested anything besides Google and Yahoo.
+		if firstname, ok := ax["http://axschema.org/namePerson/first"]; ok {
+			if lastname, ok := ax["http://axschema.org/namePerson/last"]; ok {
+				userData.FullName = fmt.Sprintf("%s %s", firstname, lastname)
+			} else {
+				// Just use firstname:
+				userData.FullName = firstname
+			}
+		} else if fullname, ok := ax["http://axschema.org/namePerson"]; ok {
+			userData.FullName = fullname
+		} else if friendly, ok := ax["http://axschema.org/namePerson/friendly"]; ok {
+			// Yahoo provides this as first name; Google does not provide at all.
+			userData.FullName = friendly
+		}
+
+		if userData.FullName == "" {
+			log.Printf("Could not determine full name from OpenID ax attributes!\n%#v\n", ax)
+			// Not crucial, so don't error out.
+		}
+		if userData.TimeZone == "" {
+			// Google does not provide time zones. Yahoo does but they guessed wrong when I created my account. Blunderful.
+			userData.TimeZone = "America/Chicago"
 		}
 
 		// Set authentication cookie:

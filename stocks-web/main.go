@@ -84,16 +84,16 @@ where s.IsStopEnabled = 1
 
 <html>
 <body>
-<h3>Welcome, %s %s &lt;%s&gt;!</h3>
+<h3>Welcome, %s &lt;%s&gt; tz=%s!</h3>
 <p>These are your purchased stocks:<br>
 %+v
 </p>
 Click <a href="/auth/logout">here</a> to log out.
 </body>
 </html>`,
-			user.First,
-			user.Last,
+			user.FullName,
 			user.Email,
+			user.TimeZone,
 			stocks,
 		)))
 		return
