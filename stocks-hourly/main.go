@@ -141,7 +141,11 @@ where s.IsStopEnabled = 1`); err != nil {
 	log.Printf("%d stocks tracked.\n", len(stocks))
 	for _, st := range stocks {
 		// NOTE(jsd): Stock dates/times are in NYC timezone.
-		purchaseDate, _ := time.Parse(dateFmt, st.PurchaseDate)
+		purchaseDate, err := time.Parse(dateFmt, st.PurchaseDate)
+		if err != nil {
+			log.Printf("Error parsing PurchaseDate for '%s': %s\n", st.Symbol, err)
+			continue
+		}
 
 		log.Printf("'%s' purchased by %s <%s> on %s for %s with %s%% trailing stop\n", st.Symbol, st.UserName, st.UserEmail, purchaseDate.Format(dateFmt), toRat(st.PurchasePrice).FloatString(2), toRat(st.StopPercent).FloatString(2))
 
@@ -153,7 +157,12 @@ where s.IsStopEnabled = 1`); err != nil {
 			lastDate = purchaseDate
 		} else {
 			// Extract the last-fetched date from the db record, assuming NYC time:
-			lastDate = truncDate(toDateTime(ld.(string), nyLoc))
+			lastDate, err = toDateTime(ld.(string), nyLoc)
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+			lastDate = truncDate(lastDate)
 		}
 
 		// Start fetching the current stock price from Yahoo! Finance:
@@ -231,6 +240,12 @@ where s.IsStopEnabled = 1`); err != nil {
 			log.Println(err)
 			continue
 		}
+		if maxmin[0] == nil {
+			maxmin[0] = "0"
+		}
+		if maxmin[1] == nil {
+			maxmin[1] = "0"
+		}
 		highestPrice, lowestPrice := toRat(maxmin[0].(string)), toRat(maxmin[1].(string))
 
 		// stopPrice = ((100 - stopPercent) * 0.01) * highestPrice
@@ -249,6 +264,12 @@ select (select avg(cast(Closing as real)) from StockHistory where Symbol = ?1 an
 			log.Println(err)
 			continue
 		}
+		if avgs[0] == nil {
+			avgs[0] = "0"
+		}
+		if avgs[1] == nil {
+			avgs[1] = "0"
+		}
 		avg50, avg200 := toRat(avgs[0].(string)), toRat(avgs[1].(string))
 
 		log.Println()
@@ -261,20 +282,26 @@ select (select avg(cast(Closing as real)) from StockHistory where Symbol = ?1 an
 		// Wait for current price data to come back:
 		currPrice := <-taskCurrPrice
 		if currPrice == nil {
-			log.Printf("  Error while fetching current trading price.")
+			log.Printf("  Error while fetching current trading price.\n")
 			continue
 		}
 
 		log.Printf("  Current price:  %s\n", currPrice.FloatString(2))
 		log.Printf("  Stopping price: %s\n", stopPrice.FloatString(2))
-		log.Println()
 
 		if currPrice.Cmp(stopPrice) <= 0 {
 			// Current price has fallen below stopping price!
+			log.Println()
 			log.Println("  ALERT: Current price has fallen below stop price!")
 
 			// Check DB to see if notification already sent:
-			nextDeliveryTime := toDateTime(st.StopLastNotificationDate.String, nil).Add(time.Duration(st.UserNotificationTimeout) * time.Second)
+			nextDeliveryTime, err := toDateTime(st.StopLastNotificationDate.String, nil)
+			if err != nil {
+				log.Printf("  Error parsing StopLastNotificationDate: %s\n", err)
+				continue
+			}
+
+			nextDeliveryTime = nextDeliveryTime.Add(time.Duration(st.UserNotificationTimeout) * time.Second)
 			if !st.StopLastNotificationDate.Valid || time.Now().After(nextDeliveryTime) {
 				log.Printf("  Delivering notification email to %s <%s>...\n", st.UserName, st.UserEmail)
 

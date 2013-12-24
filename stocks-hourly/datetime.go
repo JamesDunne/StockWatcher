@@ -12,7 +12,6 @@ func truncDate(t time.Time) time.Time {
 	return t.Add(d)
 }
 
-func toDateTime(d string, loc *time.Location) time.Time {
-	t, _ := time.ParseInLocation(time.RFC3339, d, loc)
-	return t
+func toDateTime(d string, loc *time.Location) (t time.Time, err error) {
+	return time.ParseInLocation(time.RFC3339, d, loc)
 }
