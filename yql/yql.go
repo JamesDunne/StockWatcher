@@ -1,19 +1,54 @@
 package yql
 
 // general stuff:
-import "fmt"
-import "log"
-import "errors"
-import "encoding/json"
-import "strings"
-import "reflect"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"reflect"
+	"sort"
+	"strings"
+	"time"
+)
 
 // networking:
 import "io/ioutil"
 import "net/http"
 import "net/url"
 
-func yqlValidateResultsType(results interface{}) (structType reflect.Type) {
+// ------------- private structures:
+
+const dateFmt = "2006-01-02"
+
+// Head to http://developer.yahoo.com/yql/console/?q=select%20*%20from%20yahoo.finance.quote%20where%20symbol%20in%20(%22YHOO%22%2C%22AAPL%22%2C%22GOOG%22%2C%22MSFT%22)&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys
+// to understand this JSON structure.
+
+type yqlResponse struct {
+	Query struct {
+		Count       int    `json:"count"`
+		CreatedDate string `json:"created"`
+		// TODO(jsd): Use `*json.RawMessage` type instead.
+		Results map[string]interface{} `json:"results"`
+	} `json:"query"`
+}
+
+type Quote struct {
+	Symbol             string
+	LastTradePriceOnly string
+}
+
+type History struct {
+	Symbol string
+	Date   string
+	Open   string
+	Close  string
+	High   string
+	Low    string
+	Volume string
+}
+
+func validateResultsType(results interface{}) (structType reflect.Type) {
 	if results == nil {
 		panic(errors.New("results cannot be nil"))
 	}
@@ -32,9 +67,9 @@ func yqlValidateResultsType(results interface{}) (structType reflect.Type) {
 	return
 }
 
-func yqlExtractResponse(body []byte, results interface{}, structType reflect.Type) (err error) {
+func extractResponse(body []byte, results interface{}, structType reflect.Type) (err error) {
 	if structType == nil {
-		structType = yqlValidateResultsType(results)
+		structType = validateResultsType(results)
 	}
 
 	// results is now guaranteed to be a pointer to a slice of structs.
@@ -90,19 +125,10 @@ func yqlExtractResponse(body []byte, results interface{}, structType reflect.Typ
 	return
 }
 
-type yqlResponse struct {
-	Query struct {
-		Count       int    `json:"count"`
-		CreatedDate string `json:"created"`
-		// TODO(jsd): Use `*json.RawMessage` type instead.
-		Results map[string]interface{} `json:"results"`
-	} `json:"query"`
-}
-
 // `q` is the YQL query
 func Get(results interface{}, q string) (err error) {
 	// Validate type of `results`:
-	structType := yqlValidateResultsType(results)
+	structType := validateResultsType(results)
 
 	// form the YQL URL:
 	u := `http://query.yahooapis.com/v1/public/yql?q=` + url.QueryEscape(q) + `&format=json&env=store%3A%2F%2Fdatatables.org%2Falltableswithkeys`
@@ -133,11 +159,118 @@ func Get(results interface{}, q string) (err error) {
 	}
 
 	// Extract the unstable JSON structure's results field as an array:
-	err = yqlExtractResponse(body, results, structType)
+	err = extractResponse(body, results, structType)
 	if err != nil {
 		// debugging info:
 		log.Printf("query:    %s\n", q)
 		return
+	}
+
+	return
+}
+
+// Single query result:
+type yearQueryResult struct {
+	Year    int
+	Error   error
+	History *[]History
+}
+
+// Sortable list of query results:
+type yearQueryResultList struct {
+	items []yearQueryResult
+}
+
+// Len is the number of elements in the collection.
+func (l *yearQueryResultList) Len() int { return len(l.items) }
+
+// Less reports whether the element with
+// index i should sort before the element with index j.
+// YQL reports dates in descending order.
+func (l *yearQueryResultList) Less(i, j int) bool {
+	return l.items[i].Year > l.items[j].Year
+}
+
+// Swap swaps the elements with indexes i and j.
+func (l *yearQueryResultList) Swap(i, j int) {
+	l.items[i], l.items[j] = l.items[j], l.items[i]
+}
+
+func GetHistory(symbol string, startDate, endDate time.Time) (results []History, err error) {
+	// NOTE(jsd): YQL queries over stocks only respond to queries requesting up to 365 date records; results is nil otherwise.
+	days := int(endDate.Sub(startDate) / (time.Duration(24) * time.Hour))
+
+	// TODO(jsd): Subtract weekend dates (and holidays).
+	results = make([]History, 0, days)
+
+	count := days / 365
+	if (days % 365) > 0 {
+		count++
+	}
+
+	// Submit a batch of queries to pull all the data year by year:
+	queries := make([]string, 0, count)
+	date := startDate
+	for year := 0; year < count; year++ {
+		qstartDate, qendDate := date, date.Add(time.Duration(364*24)*time.Hour)
+		if qendDate.After(endDate) {
+			qendDate = endDate
+		}
+
+		// TODO(jsd): YQL parameter escaping!
+		queries = append(
+			queries,
+			fmt.Sprintf(`select Symbol, Date, Open, Close, High, Low, Volume from yahoo.finance.historicaldata where symbol = "%s" and startDate = "%s" and endDate = "%s"`,
+				symbol,
+				qstartDate.Format(dateFmt),
+				qendDate.Format(dateFmt),
+			),
+		)
+
+		date = date.Add(time.Duration(365*24) * time.Hour)
+	}
+
+	// Run the queries in parallel:
+	queryResults := make(chan yearQueryResult)
+	for i, q := range queries {
+		go func(i int, q string) {
+			res := make([]History, 0, 364)
+
+			err := Get(&res, q)
+			if err != nil {
+				queryResults <- yearQueryResult{
+					Year:    i,
+					Error:   err,
+					History: nil,
+				}
+				return
+			}
+
+			queryResults <- yearQueryResult{
+				Year:    i,
+				History: &res,
+			}
+		}(i, q)
+	}
+
+	// Collect the query results:
+	list := &yearQueryResultList{items: make([]yearQueryResult, 0, count)}
+	for i := 0; i < count; i++ {
+		r := <-queryResults
+		list.items = append(list.items, r)
+	}
+
+	// Order list in descending order:
+	sort.Sort(list)
+
+	for _, r := range list.items {
+		if r.History == nil {
+			return nil, r.Error
+		}
+
+		for _, h := range *(r.History) {
+			results = append(results, h)
+		}
 	}
 
 	return

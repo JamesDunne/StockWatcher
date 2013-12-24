@@ -105,7 +105,7 @@ where s.IsStopEnabled = 1 and s.UserID = ?1`, dbUser.UserID); err != nil {
 
 		// Render an HTML response:
 		w.Header().Set("Content-Type", `text/html; charset="utf-8"`)
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 
 		w.Write([]byte(fmt.Sprintf(`<!DOCTYPE html>
 
