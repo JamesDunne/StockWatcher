@@ -212,21 +212,26 @@ where s.IsStopEnabled = 1`); err != nil {
 					continue
 				}
 
-				rows = append(rows, []interface{}{
-					st.Symbol,
-					date.Format(time.RFC3339),
-					h.Close,
-					h.Open,
-					h.High,
-					h.Low,
-					h.Volume,
-				})
+				// Only record dates after last-fetched dates:
+				if date.After(lastDate) {
+					rows = append(rows, []interface{}{
+						st.Symbol,
+						date.Format(time.RFC3339),
+						h.Close,
+						h.Open,
+						h.High,
+						h.Low,
+						h.Volume,
+					})
+				}
 			}
 
-			err = dbutil.BulkInsert(db, "StockHistory", []string{"Symbol", "Date", "Closing", "Opening", "High", "Low", "Volume"}, rows)
-			if err != nil {
-				log.Println(err)
-				continue
+			if len(rows) > 0 {
+				err = dbutil.BulkInsert(db, "StockHistory", []string{"Symbol", "Date", "Closing", "Opening", "High", "Low", "Volume"}, rows)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
 			}
 
 			log.Printf("  Recorded historical data.\n")
@@ -295,13 +300,16 @@ select (select avg(cast(Closing as real)) from StockHistory where Symbol = ?1 an
 			log.Println("  ALERT: Current price has fallen below stop price!")
 
 			// Check DB to see if notification already sent:
-			nextDeliveryTime, err := toDateTime(st.StopLastNotificationDate.String, nil)
-			if err != nil {
-				log.Printf("  Error parsing StopLastNotificationDate: %s\n", err)
-				continue
+			var nextDeliveryTime time.Time
+			if st.StopLastNotificationDate.Valid {
+				nextDeliveryTime, err = toDateTime(st.StopLastNotificationDate.String, nil)
+				if err != nil {
+					log.Printf("  Error parsing StopLastNotificationDate: %s\n", err)
+					continue
+				}
+				nextDeliveryTime = nextDeliveryTime.Add(time.Duration(st.UserNotificationTimeout) * time.Second)
 			}
 
-			nextDeliveryTime = nextDeliveryTime.Add(time.Duration(st.UserNotificationTimeout) * time.Second)
 			if !st.StopLastNotificationDate.Valid || time.Now().After(nextDeliveryTime) {
 				log.Printf("  Delivering notification email to %s <%s>...\n", st.UserName, st.UserEmail)
 
