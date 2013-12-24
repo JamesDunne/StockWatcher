@@ -15,18 +15,23 @@ import (
 	"time"
 )
 
+// Where to serve static files from:
 var fsRoot = "./root/"
 
 // openid authentication store: (total crap; leaks memory - replace)
 var nonceStore = &openid.SimpleNonceStore{Store: make(map[string][]*openid.Nonce)}
 var discoveryCache = &openid.SimpleDiscoveryCache{}
 
+// ----------------------- Authentication section:
+
+// Authentication data:
 type UserCookieData struct {
 	Email string `json:"email"`
 	First string `json:"first"`
 	Last  string `json:"last"`
 }
 
+// Sets the authentication cookie:
 func setAuthCookie(w http.ResponseWriter, userData *UserCookieData) {
 	if userData == nil {
 		panic("setAuthCookie: userData cannot be nil!")
@@ -49,7 +54,9 @@ func setAuthCookie(w http.ResponseWriter, userData *UserCookieData) {
 	http.SetCookie(w, authCookie)
 }
 
+// Clears the authentication cookie (i.e. log out):
 func clearAuthCooke(w http.ResponseWriter) {
+	// Removing a cookie is tantamount to setting the expiration date in the past.
 	authCookie := &http.Cookie{
 		Name:    "auth",
 		Path:    "/",
@@ -210,8 +217,12 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 // Handles /api/* requests for JSON API:
 func apiHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO
+	http.NotFound(w, r)
 }
 
+// ----------------------- Unsecured section:
+
+// Handles all other requests including root "/":
 func rootHandler(w http.ResponseWriter, r *http.Request) {
 	// Root page redirects to /auth/login if unauthenticated:
 	if r.URL.Path == "/" {
@@ -232,12 +243,13 @@ func rootHandler(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
+// Entry point:
 func main() {
-	// Expect commandline arguments to specify:
-	//   <listen socket type> : "unix" or "tcp" type of socket to listen on
-	//   <listen address>     : network address to listen on if "tcp" or path to socket if "unix"
+	// Define our commandline flags:
 	socketType := flag.String("t", "tcp", "socket type to listen on: 'unix', 'tcp', 'udp'")
 	socketAddr := flag.String("l", ":8080", "address to listen on")
+
+	// Parse the flags and set values:
 	flag.Parse()
 
 	// Create the socket to listen on:
@@ -247,21 +259,25 @@ func main() {
 		return
 	}
 
-	// NOTE(jsd): Unix sockets must be unlink()ed before being reused again.
+	// NOTE(jsd): Unix sockets must be removed before being reused.
 
 	// Handle common process-killing signals so we can gracefully shut down:
+	// TODO(jsd): Go does not catch Windows' process kill signals (yet?)
 	sigc := make(chan os.Signal, 1)
 	signal.Notify(sigc, os.Interrupt, os.Kill, syscall.SIGTERM, syscall.SIGQUIT)
 	go func(c chan os.Signal) {
 		// Wait for a signal:
 		sig := <-c
-		log.Printf("Caught signal '%s': shutting down.", sig)
+		log.Printf("Caught signal '%s': shutting down.\n", sig)
+
 		// Stop listening:
 		l.Close()
+
 		// Delete the unix socket, if applicable:
 		if *socketType == "unix" {
 			os.Remove(*socketAddr)
 		}
+
 		// And we're done:
 		os.Exit(0)
 	}(sigc)
@@ -271,16 +287,16 @@ func main() {
 	// Authentication section:
 	http.Handle("/auth/", http.StripPrefix("/auth", http.HandlerFunc(authHandler)))
 
-	// For serving static files:
-	http.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir(fsRoot))))
-
 	// Secured section:
 	http.Handle("/ui/", RequireAuth(http.StripPrefix("/ui", http.HandlerFunc(uiHandler))))
 	http.Handle("/api/", RequireAuth(http.StripPrefix("/api", http.HandlerFunc(apiHandler))))
 
+	// Unsecured section:
+	// For serving static files:
+	http.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir(fsRoot))))
 	// Catch-all handler:
 	http.Handle("/", http.HandlerFunc(rootHandler))
 
-	// Start the HTTP server and block until killed:
+	// Start the HTTP server and block the main goroutine:
 	log.Fatal(http.Serve(l, nil))
 }
