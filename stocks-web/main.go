@@ -134,14 +134,16 @@ func main() {
 	// Define our commandline flags:
 	socketType := flag.String("t", "tcp", "socket type to listen on: 'unix', 'tcp', 'udp'")
 	socketAddr := flag.String("l", ":8080", "address to listen on")
-	root := flag.String("fs", "./root", "Root directory of static files to serve")
+	fs := flag.String("fs", "./root", "Root directory of static files to serve")
 	dbPathArg := flag.String("db", "./stocks.db", "Path to stocks.db database")
+	webHostArg := flag.String("host", "localhost:8080", "Host name of server; used for HTTP redirects")
 	mailServerArg := flag.String("mail-server", "localhost:25", "Address of SMTP server to use for sending email")
 
 	// Parse the flags and set values:
 	flag.Parse()
-	fsRoot = *root
+	fsRoot = *fs
 	dbPath = *dbPathArg
+	WebHost = *webHostArg
 	_ = *mailServerArg
 
 	// Create the socket to listen on:

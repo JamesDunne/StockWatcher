@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+// Override this with the production host name, e.g. stocks.bittwiddlers.org (port optional):
+var WebHost = "localhost:8080"
+
 // openid authentication store: (total crap; leaks memory - replace)
 var nonceStore = &openid.SimpleNonceStore{Store: make(map[string][]*openid.Nonce)}
 var discoveryCache = &openid.SimpleDiscoveryCache{}
@@ -68,7 +71,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 			// Redirect to openid provider and instruct them to come back here at /auth/openid:
 			if url, err := openid.RedirectUrl(
 				r.FormValue("id"),
-				"http://"+r.Host+"/auth/openid",
+				"http://"+WebHost+"/auth/openid",
 				"",
 				map[string]string{
 					"openid.ns.ax":             "http://openid.net/srv/ax/1.0",
@@ -95,7 +98,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 
 	case "/openid":
 		// Redirected from openid provider to here:
-		verifyUrl := (&url.URL{Scheme: "http", Host: r.Host, Path: "auth" + r.URL.Path, RawQuery: r.URL.RawQuery}).String()
+		verifyUrl := (&url.URL{Scheme: "http", Host: WebHost, Path: path.Join("auth", r.URL.Path), RawQuery: r.URL.RawQuery}).String()
 
 		// Don't care about the `id` coming back; it's useless.
 		if _, err := openid.Verify(verifyUrl, discoveryCache, nonceStore); err != nil {
