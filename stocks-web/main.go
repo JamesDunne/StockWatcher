@@ -46,6 +46,13 @@ type dbStock struct {
 	StopLastNotificationDate sql.NullString `db:"StopLastNotificationDate"`
 }
 
+type dbUser struct {
+	UserID              int    `db:"UserID"`
+	Email               string `db:"Email"`
+	Name                string `db:"Name"`
+	NotificationTimeout int    `db:"NotificationTimeout"` // timeout in seconds
+}
+
 // Handles /ui/* requests to present HTML UI to the user:
 func uiHandler(w http.ResponseWriter, r *http.Request) {
 	// Get authenticated user data:
@@ -62,6 +69,27 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		defer db.Close()
 
+		// Insert user if not exists:
+		db.Execl(`insert or ignore into User (Email, Name, NotificationTimeout) values (?1, ?2, ?3)`,
+			user.Email,
+			user.FullName,
+			int(60), // seconds
+		)
+		//userID, err := insResult.LastInsertId()
+
+		// Query for user:
+		dbUser := new(dbUser)
+		if err = db.Get(dbUser, `select u.rowid as UserID, u.Email, u.Name, u.NotificationTimeout from User as u where u.Email = ?1`, user.Email); err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "Could not find user record!", http.StatusInternalServerError)
+				return
+			} else {
+				log.Println(err)
+				http.Error(w, "Query failed!", http.StatusInternalServerError)
+				return
+			}
+		}
+
 		// Query what stocks are purchased by this user:
 		stocks := make([]dbStock, 0, 4) // make(type, len, capacity)
 		if err = db.Select(&stocks, `
@@ -69,8 +97,7 @@ select s.UserID, u.NotificationTimeout AS UserNotificationTimeout
      , s.rowid as StockOwnedID, s.Symbol, s.PurchaseDate, s.PurchasePrice, s.StopPercent, s.StopLastNotificationDate
 from StockOwned as s
 join User as u on u.rowid = s.UserID
-where s.IsStopEnabled = 1
-  and u.Email = ?1`, user.Email); err != nil {
+where s.IsStopEnabled = 1 and s.UserID = ?1`, dbUser.UserID); err != nil {
 			log.Println(err)
 			http.Error(w, "Query failed!", http.StatusInternalServerError)
 			return
