@@ -26,9 +26,22 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/dash":
 		// Dashboard UI
-		_ = user
+
+		w.Header().Set("Content-Type", `text/html; charset="utf-8"`)
 		w.WriteHeader(200)
-		w.Write([]byte(fmt.Sprintf("Welcome, %s %s <%s>!", user.First, user.Last, user.Email)))
+
+		w.Write([]byte(fmt.Sprintf(`<!DOCTYPE html>
+
+<html>
+<body>
+<h3>Welcome, %s %s &lt;%s&gt;!</h3>
+Click <a href="/auth/logout">here</a> to log out.
+</body>
+</html>`,
+			user.First,
+			user.Last,
+			user.Email,
+		)))
 		return
 	}
 }
