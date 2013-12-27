@@ -37,6 +37,8 @@ func (api *API) LastTradingDate() time.Time { return api.lastTradingDate }
 func (api *API) CurrentHour() time.Time { return time.Now().Truncate(time.Hour) }
 
 type UserID int64
+type OwnedID int64
+type WatchedID int64
 
 // ------------------------- API functions:
 
@@ -156,7 +158,7 @@ func (api *API) AddWatchedStock(userID UserID, symbol string, startDate string, 
 
 // A stock owned by UserID.
 type OwnedStock struct {
-	ID          int64
+	OwnedID     OwnedID
 	UserID      UserID
 	Symbol      string
 	IsEnabled   bool
@@ -190,7 +192,7 @@ select rowid as ID, UserID, Symbol, BuyDate, IsEnabled, BuyPrice, Shares, StopPe
 	owned = make([]OwnedStock, 0, len(rows))
 	for _, r := range rows {
 		owned = append(owned, OwnedStock{
-			ID:          r.ID,
+			OwnedID:     OwnedID(r.ID),
 			UserID:      UserID(r.UserID),
 			Symbol:      r.Symbol,
 			IsEnabled:   ToBool(r.IsEnabled),
@@ -206,7 +208,7 @@ select rowid as ID, UserID, Symbol, BuyDate, IsEnabled, BuyPrice, Shares, StopPe
 
 // A stock watched by the UserID.
 type WatchedStock struct {
-	ID          int64
+	WatchedID   WatchedID
 	UserID      UserID
 	Symbol      string
 	IsEnabled   bool
@@ -240,7 +242,7 @@ select rowid as ID, UserID, Symbol, IsEnabled, StartDate, StartPrice, StopPercen
 	watched = make([]WatchedStock, 0, len(rows))
 	for _, r := range rows {
 		watched = append(watched, WatchedStock{
-			ID:          r.ID,
+			WatchedID:   WatchedID(r.ID),
 			UserID:      UserID(r.UserID),
 			Symbol:      r.Symbol,
 			IsEnabled:   ToBool(r.IsEnabled),
@@ -453,7 +455,7 @@ func (api *API) GetCurrentHourlyPrices(symbols ...string) (prices map[string]*bi
 
 // A stock owned by UserID with details.
 type OwnedStockDetails struct {
-	ID          int64
+	OwnedID     OwnedID
 	UserID      int64
 	Symbol      string
 	IsEnabled   bool
@@ -529,7 +531,7 @@ order by o.ID asc`, int64(userID), api.CurrentHour().Format(time.RFC3339))
 	for _, r := range rows {
 		currPrice := ToRat(r.CurrPrice)
 		d := OwnedStockDetails{
-			ID:            r.ID,
+			OwnedID:       OwnedID(r.ID),
 			UserID:        r.UserID,
 			Symbol:        r.Symbol,
 			IsEnabled:     ToBool(r.IsEnabled),
