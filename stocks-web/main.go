@@ -10,7 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	//"time"
+	"time"
 )
 
 // sqlite related imports:
@@ -24,7 +24,7 @@ import (
 import (
 	//"github.com/JamesDunne/StockWatcher/dbutil"
 	//"github.com/JamesDunne/StockWatcher/mailutil"
-	"github.com/JamesDunne/StockWatcher/stocksdb"
+	"github.com/JamesDunne/StockWatcher/stocksAPI"
 )
 
 // Where to serve static files from:
@@ -56,50 +56,43 @@ type dbUser struct {
 // Handles /ui/* requests to present HTML UI to the user:
 func uiHandler(w http.ResponseWriter, r *http.Request) {
 	// Get authenticated user data:
-	user := getUserData(r)
+	webuser := getUserData(r)
 
 	switch r.URL.Path {
 	case "/dash":
 		// Dashboard UI:
-		db, err := stocksdb.Open(dbPath)
+		api, err := stocksAPI.NewAPI(dbPath)
 		if err != nil {
 			log.Println(err)
 			http.Error(w, "Could not open stocks database!", http.StatusInternalServerError)
 			return
 		}
-		defer db.Close()
+		defer api.Close()
 
-		// Insert user if not exists:
-		db.Execl(`insert or ignore into User (Email, Name, NotificationTimeout) values (?1, ?2, ?3)`,
-			user.Email,
-			user.FullName,
-			int(60), // seconds
-		)
-		//userID, err := insResult.LastInsertId()
-
-		// Query for user:
-		dbUser := new(dbUser)
-		if err = db.Get(dbUser, `select u.rowid as UserID, u.Email, u.Name, u.NotificationTimeout from User as u where u.Email = ?1`, user.Email); err != nil {
-			if err == sql.ErrNoRows {
-				http.Error(w, "Could not find user record!", http.StatusInternalServerError)
-				return
-			} else {
-				log.Println(err)
-				http.Error(w, "Query failed!", http.StatusInternalServerError)
-				return
+		// Find user:
+		apiuser, err := api.GetUserByEmail(webuser.Email)
+		if apiuser == nil {
+			// Add user:
+			apiuser = &stocksAPI.User{
+				PrimaryEmail:        webuser.Email,
+				Name:                webuser.FullName,
+				NotificationTimeout: time.Minute,
 			}
+			api.AddUser(apiuser)
 		}
 
 		// Query what stocks are purchased by this user:
-		stocks := make([]dbStock, 0, 4) // make(type, len, capacity)
-		if err = db.Select(&stocks, `
-select s.UserID, u.NotificationTimeout AS UserNotificationTimeout
-     , s.rowid as StockOwnedID, s.Symbol, s.PurchaseDate, s.PurchasePrice, s.StopPercent, s.StopLastNotificationDate
-from StockOwned as s
-join User as u on u.rowid = s.UserID
-where s.IsStopEnabled = 1 and s.UserID = ?1`, dbUser.UserID); err != nil {
+		owned, err := api.GetOwnedStocksByUser(apiuser.UserID)
+		if err != nil {
 			log.Println(err)
-			http.Error(w, "Query failed!", http.StatusInternalServerError)
+			http.Error(w, "Fail GetOwnedStocksByUser", http.StatusInternalServerError)
+			return
+		}
+
+		watched, err := api.GetWatchedStocksByUser(apiuser.UserID)
+		if err != nil {
+			log.Println(err)
+			http.Error(w, "Fail GetWatchedStocksByUser", http.StatusInternalServerError)
 			return
 		}
 
@@ -112,16 +105,20 @@ where s.IsStopEnabled = 1 and s.UserID = ?1`, dbUser.UserID); err != nil {
 <html>
 <body>
 <h3>Welcome, %s &lt;%s&gt; tz=%s!</h3>
-<p>These are your purchased stocks:<br>
+<p>These are your owned stocks:<br>
+%+v
+</p>
+<p>These are your watched stocks:<br>
 %+v
 </p>
 Click <a href="/auth/logout">here</a> to log out.
 </body>
 </html>`,
-			user.FullName,
-			user.Email,
-			user.TimeZone,
-			stocks,
+			apiuser.Name,
+			apiuser.PrimaryEmail,
+			webuser.TimeZone,
+			owned,
+			watched,
 		)))
 		return
 	}

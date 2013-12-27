@@ -70,6 +70,7 @@ func main() {
 			// Real data from market:
 			api.AddOwnedStock(testUser.UserID, "MSFT", "2013-09-03", stocksAPI.ToRat("31.88"), 10, stocksAPI.ToRat("2.50"))
 			api.AddOwnedStock(testUser.UserID, "AAPL", "2013-09-03", stocksAPI.ToRat("488.58"), 10, stocksAPI.ToRat("2.50"))
+			api.AddWatchedStock(testUser.UserID, "YHOO", "2013-09-03", stocksAPI.ToRat("31.88"), stocksAPI.ToRat("2.50"))
 
 			api.AddOwnedStock(testUser.UserID, "MSFT", "2013-09-03", stocksAPI.ToRat("31.88"), -5, stocksAPI.ToRat("2.50"))
 			api.AddOwnedStock(testUser.UserID, "AAPL", "2013-09-03", stocksAPI.ToRat("488.58"), -5, stocksAPI.ToRat("2.50"))
@@ -176,6 +177,25 @@ func main() {
 			}
 
 			// TODO: check hard buy stop and sell stops.
+		}
+
+		// Calculate details of watched stocks and their watchers for this symbol:
+		watched, err := api.GetWatchedDetailsForSymbol(symbol)
+		if err != nil {
+			panic(err)
+		}
+
+		for _, watch := range watched {
+			// Get the watcher:
+			user, err := api.GetUser(watch.UserID)
+			if err != nil {
+				panic(err)
+			}
+
+			log.Printf("  %s\n", symbol)
+			log.Printf("    %s watching, start price %s on %s:\n", user.Name, watch.StartPrice.FloatString(2), watch.StartDate.Format(dateFmt))
+			log.Printf("    current: %s\n", watch.CurrPrice.FloatString(2))
+			log.Printf("    t-stop:  %s\n", watch.TStopPrice.FloatString(2))
 		}
 	}
 
