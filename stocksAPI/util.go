@@ -8,6 +8,7 @@ import (
 )
 
 import (
+	"database/sql"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -100,6 +101,18 @@ func (api *API) bulkInsert(tableName string, columns []string, rows [][]interfac
 	})
 }
 
+func sqliteNullTime(format string, v sql.NullString) *time.Time {
+	if !v.Valid {
+		return nil
+	}
+
+	t, err := time.Parse(format, v.String)
+	if err != nil {
+		panic(err)
+	}
+	return &t
+}
+
 func parseNullTime(format string, v interface{}) *time.Time {
 	if v == nil {
 		return nil
@@ -107,8 +120,7 @@ func parseNullTime(format string, v interface{}) *time.Time {
 
 	t, err := time.Parse(format, v.(string))
 	if err != nil {
-		fmt.Println(err)
-		return nil
+		panic(err)
 	}
 	return &t
 }
@@ -214,11 +226,11 @@ func TradeDate(str string) time.Time {
 }
 
 func TradeSqliteDateTime(str string) time.Time {
-	t, err := time.ParseInLocation(sqliteFmt, str, LocNY)
+	t, err := time.Parse(sqliteFmt, str)
 	if err != nil {
 		panic(err)
 	}
-	return t
+	return t.In(LocNY)
 }
 
 // Check if the date is on a weekend:

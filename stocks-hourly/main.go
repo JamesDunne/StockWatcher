@@ -13,24 +13,22 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"math/big"
+	//"math/big"
 	"net/mail"
 	"time"
 )
 
 // sqlite related imports:
 import (
-	"database/sql"
+	//"database/sql"
 	//"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 // Our own packages:
 import (
-	"github.com/JamesDunne/StockWatcher/dbutil"
 	"github.com/JamesDunne/StockWatcher/mailutil"
 	"github.com/JamesDunne/StockWatcher/stocksAPI"
-	"github.com/JamesDunne/StockWatcher/yql"
 )
 
 // ------------- main:
@@ -55,16 +53,22 @@ func main() {
 	}
 	defer api.Close()
 
-	// Add some test data:
-	//dbutil.Tx(db, func(tx *sqlx.Tx) (err error) {
-	//	db.Execl(`insert or ignore into User (Email, Name, NotificationTimeout) values ('example@example.org', 'Example User', 30)`)
-	//	db.Execl(`insert or ignore into StockOwned (UserID, Symbol, IsStopEnabled, PurchaseDate, PurchasePrice, StopPercent) values (1, 'MSFT', 1, '2012-09-01', '30.00', '1.0');`)
-	//	db.Execl(`insert or ignore into StockOwned (UserID, Symbol, IsStopEnabled, PurchaseDate, PurchasePrice, StopPercent) values (1, 'AAPL', 1, '2012-09-01', '400.00', '20.0');`)
-	//	return nil
-	//})
+	// Testing data:
+	{
+		testUser := &stocksAPI.User{
+			PrimaryEmail:        "test@example.org",
+			Name:                "Test User",
+			NotificationTimeout: time.Minute,
+		}
+		err := api.AddUser(testUser)
+
+		if err == nil {
+			api.AddOwnedStock(testUser.UserID, "MSFT", "2013-09-01", stocksAPI.ToRat("30.00"), 10, stocksAPI.ToRat("25.00"))
+		}
+	}
 
 	// Get today's date in NY time:
-	today, lastTradeDate := stocksAPI.Today(), stocksAPI.LastTradingDate()
+	//today, lastTradeDate := api.Today(), api.LastTradingDate()
 	//if stocksAPI.IsWeekend(today) {
 	//	// We don't work on weekends.
 	//	log.Printf("No work to do on weekends.")
@@ -72,26 +76,86 @@ func main() {
 	//}
 
 	// Query stocks:
-	trackedSymbols, err := api.GetTrackedSymbols()
+	symbols, err := api.GetAllTrackedSymbols()
 	if err != nil {
 		log.Fatalln(err)
 		return
 	}
 
 	// Run through each actively tracked stock and calculate stopping prices, notify next of kin, what have you...
-	log.Printf("%d stocks tracked.\n", len(trackedSymbols))
-	for _, sym := range trackedSymbols {
-		log.Printf("  %s\n", sym)
-		err = api.RecordHistory(sym)
+	log.Printf("%d stocks tracked.\n", len(symbols))
+
+	for _, symbol := range symbols {
+		log.Printf("%s:\n", symbol)
+
+		// Record trading history:
+		err = api.RecordHistory(symbol)
 		if err != nil {
 			log.Println(err)
 			continue
 		}
 
-		err = api.RecordTrends(sym)
+		// Calculate and record statistics:
+		err = api.RecordStats(symbol)
 		if err != nil {
 			log.Println(err)
 			continue
+		}
+	}
+
+	// Fetch hourly prices into the database:
+	api.GetCurrentHourlyPrices(symbols...)
+
+	for _, symbol := range symbols {
+		// Find details of owned stocks and their owners for this symbol:
+		owned, err := api.GetOwnedDetailsForSymbol(symbol)
+		if err != nil {
+			panic(err)
+		}
+		log.Printf("  %+v\n", owned)
+
+		for _, own := range owned {
+			user, err := api.GetUser(own.UserID)
+			if err != nil {
+				panic(err)
+			}
+
+			if own.CurrPrice.Cmp(own.TStopPrice) <= 0 {
+				// Current price has fallen below trailing-stop price!
+				log.Println()
+				log.Println("  ALERT: Current price has fallen below trailing-stop price!")
+
+				// Determine next available delivery time:
+				nextDeliveryTime := time.Now()
+				if own.LastTStopNotifyTime != nil {
+					nextDeliveryTime = (*own.LastTStopNotifyTime).Add(user.NotificationTimeout)
+				}
+
+				// Can we deliver?
+				if own.LastTStopNotifyTime == nil || time.Now().After(nextDeliveryTime) {
+					log.Printf("  Delivering notification email to %s <%s>...\n", user.Name, user.PrimaryEmail)
+
+					// Format mail addresses:
+					from := mail.Address{"stock-watcher-" + symbol, "stock.watcher." + symbol + "@bittwiddlers.org"}
+					to := mail.Address{user.Name, user.PrimaryEmail}
+
+					// Format subject and body:
+					subject := symbol + " price fell below " + own.TStopPrice.FloatString(2)
+					body := fmt.Sprintf(`<html><body>%s current price %s just fell below stop price %s</body></html>`, symbol, own.CurrPrice.FloatString(2), own.TStopPrice.FloatString(2))
+
+					// Deliver email:
+					if err = mailutil.SendHtmlMessage(from, to, subject, body); err != nil {
+						log.Println(err)
+						log.Printf("  Failed delivering notification email.\n")
+					} else {
+						log.Printf("  Delivered notification email.\n")
+						// Successfully delivered email as far as we know; record last delivery date/time:
+						api.UpdateOwnedLastNotifyTime(own.OwnedID, time.Now())
+					}
+				} else {
+					log.Printf("  Not delivering notification email due to anti-spam timeout; next delivery after %s\n", nextDeliveryTime.Format(time.RFC3339))
+				}
+			}
 		}
 	}
 

@@ -105,8 +105,8 @@ create table if not exists StockOwned (
 
 	BuyPrice TEXT NOT NULL,
 	Shares TEXT NOT NULL,
-	StopPercent TEXT NOT NULL,
-	LastNotificationDate TEXT
+	TStopPercent TEXT NOT NULL,
+	LastTStopNotifyTime TEXT
 )`, `
 create index if not exists IX_StockOwned on StockOwned (
 	UserID ASC,
@@ -121,8 +121,8 @@ create table if not exists StockWatch (
 
 	StartDate TEXT NOT NULL,
 	StartPrice TEXT NOT NULL,
-	StopPercent TEXT NOT NULL,
-	LastNotificationDate TEXT,
+	TStopPercent TEXT NOT NULL,
+	LastTStopNotifyTime TEXT,
 	CONSTRAINT PK_StockWatch PRIMARY KEY (UserID, Symbol)
 )`, `
 create index if not exists IX_StockWatch on StockWatch (
@@ -130,6 +130,25 @@ create index if not exists IX_StockWatch on StockWatch (
 	Symbol ASC,
 	IsEnabled
 )`)
+
+	// Create VIEWs:
+	api.ddl(`
+create view if not exists StockOwnedDetail
+as
+select o.rowid as ID, o.UserID, o.Symbol, o.BuyDate, o.IsEnabled, o.BuyPrice, o.Shares, o.TStopPercent, o.LastTStopNotifyTime
+     , h.Current as CurrPrice, h.DateTime as CurrHour
+     , t.Date, t.Avg200Day, t.Avg50Day, t.SMAPercent
+     , e.HighestClose, e.LowestClose
+from StockOwned o
+join StockStats t on t.Symbol = h.Symbol and t.TradeDayIndex = (select max(TradeDayIndex) from StockHistory where Symbol = h.Symbol)
+join StockHourly h on h.Symbol = o.Symbol
+join (
+	select o.rowid, h.Symbol, min(cast(h.Closing as real)) as LowestClose, max(cast(h.Closing as real)) as HighestClose
+	from StockOwned o
+	join StockHistory h on h.Symbol = o.Symbol
+	where datetime(h.Date) >= datetime(o.BuyDate)
+	group by o.rowid, h.Symbol
+) e on e.rowid = o.rowid`)
 
 	// Get today's date in NY time:
 	api.today = TruncDate(time.Now().In(LocNY))

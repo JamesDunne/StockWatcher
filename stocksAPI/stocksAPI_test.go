@@ -148,7 +148,27 @@ func TestRecordHistory(t *testing.T) {
 	}
 }
 
+func TestRecordHistory2(t *testing.T) {
+	for _, symbol := range symbols {
+		fmt.Printf("recording history for %s...\n", symbol)
+		err := api.RecordHistory(symbol)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestRecordStats(t *testing.T) {
+	for _, symbol := range symbols {
+		fmt.Printf("recording stats for %s...\n", symbol)
+		err := api.RecordStats(symbol)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestRecordStats2(t *testing.T) {
 	for _, symbol := range symbols {
 		fmt.Printf("recording stats for %s...\n", symbol)
 		err := api.RecordStats(symbol)
@@ -168,6 +188,16 @@ func TestGetCurrentHourlyPrices(t *testing.T) {
 
 func TestGetOwnedDetailsForUser(t *testing.T) {
 	stocks, err := api.GetOwnedDetailsForUser(1)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	fmt.Printf("detail stocks: %+v\n", stocks)
+}
+
+func TestGetOwnedDetailsForSymbol(t *testing.T) {
+	stocks, err := api.GetOwnedDetailsForSymbol("MSFT")
 	if err != nil {
 		t.Fatal(err)
 		return
