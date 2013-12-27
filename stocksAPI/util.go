@@ -99,14 +99,6 @@ func (api *API) bulkInsert(tableName string, columns []string, rows [][]interfac
 	})
 }
 
-func dbDate(str string) time.Time {
-	t, err := time.ParseInLocation(dateFmt, str, LocNY)
-	if err != nil {
-		panic(err)
-	}
-	return t
-}
-
 func parseNullTime(format string, v interface{}) *time.Time {
 	if v == nil {
 		return nil
@@ -159,8 +151,21 @@ func TruncDate(t time.Time) time.Time {
 }
 
 // parses the date/time in RFC3339 format, assuming NY timezone:
-func TradeDateTime(str string) (t time.Time, err error) {
-	return time.ParseInLocation(time.RFC3339, str, LocNY)
+func TradeDateTime(str string) time.Time {
+	t, err := time.ParseInLocation(time.RFC3339, str, LocNY)
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
+// parses the date in yyyy-MM-dd format, assuming NY timezone:
+func TradeDate(str string) time.Time {
+	t, err := time.ParseInLocation(dateFmt, str, LocNY)
+	if err != nil {
+		panic(err)
+	}
+	return t
 }
 
 // Check if the date is on a weekend:

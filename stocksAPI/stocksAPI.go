@@ -189,7 +189,7 @@ select rowid as ID, UserID, Symbol, BuyDate, IsEnabled, BuyPrice, Shares, StopPe
 			UserID:      r.UserID,
 			Symbol:      r.Symbol,
 			IsEnabled:   ToBool(r.IsEnabled),
-			BuyDate:     dbDate(r.BuyDate),
+			BuyDate:     TradeDate(r.BuyDate),
 			BuyPrice:    ToRat(r.BuyPrice),
 			Shares:      r.Shares,
 			StopPercent: ToRat(r.StopPercent),
@@ -212,6 +212,7 @@ type OwnedStockDetails struct {
 
 	CurrPrice       *big.Rat
 	TStopPrice      *big.Rat
+	LastCloseDate   time.Time
 	Avg200Day       float64
 	Avg50Day        float64
 	SMAPercent      float64
@@ -219,17 +220,20 @@ type OwnedStockDetails struct {
 	GainLossDollar  *big.Rat
 }
 
+// NOTE: Requires StockHistory and StockHistoryTrend to be populated.
 func (api *API) GetOwnedDetailsNowForUser(userID int) (details []OwnedStockDetails, err error) {
 	// Anonymous structs are cool.
 	rows := make([]struct {
-		ID           int     `db:"ID"`
-		UserID       int     `db:"UserID"`
-		Symbol       string  `db:"Symbol"`
-		BuyDate      string  `db:"BuyDate"`
-		IsEnabled    int     `db:"IsEnabled"`
-		BuyPrice     string  `db:"BuyPrice"`
-		Shares       int     `db:"Shares"`
-		StopPercent  string  `db:"StopPercent"`
+		ID          int    `db:"ID"`
+		UserID      int    `db:"UserID"`
+		Symbol      string `db:"Symbol"`
+		BuyDate     string `db:"BuyDate"`
+		IsEnabled   int    `db:"IsEnabled"`
+		BuyPrice    string `db:"BuyPrice"`
+		Shares      int    `db:"Shares"`
+		StopPercent string `db:"StopPercent"`
+
+		Date         string  `db:"Date"`
 		Avg200Day    float64 `db:"Avg200Day"`
 		Avg50Day     float64 `db:"Avg50Day"`
 		SMAPercent   float64 `db:"SMAPercent"`
@@ -263,17 +267,19 @@ from (
 		}
 
 		d := OwnedStockDetails{
-			ID:          r.ID,
-			UserID:      r.UserID,
-			Symbol:      r.Symbol,
-			IsEnabled:   ToBool(r.IsEnabled),
-			BuyDate:     dbDate(r.BuyDate),
-			BuyPrice:    ToRat(r.BuyPrice),
-			Shares:      r.Shares,
-			StopPercent: ToRat(r.StopPercent),
+			ID:            r.ID,
+			UserID:        r.UserID,
+			Symbol:        r.Symbol,
+			IsEnabled:     ToBool(r.IsEnabled),
+			BuyDate:       TradeDate(r.BuyDate),
+			BuyPrice:      ToRat(r.BuyPrice),
+			Shares:        r.Shares,
+			StopPercent:   ToRat(r.StopPercent),
+			LastCloseDate: TradeDateTime(r.Date),
 
-			Avg200Day: r.Avg200Day,
-			Avg50Day:  r.Avg50Day,
+			Avg200Day:  r.Avg200Day,
+			Avg50Day:   r.Avg50Day,
+			SMAPercent: r.SMAPercent,
 		}
 
 		d.CurrPrice = currPrice
@@ -330,7 +336,7 @@ select rowid as ID, UserID, Symbol, IsEnabled, StartDate, StartPrice, StopPercen
 			UserID:      r.UserID,
 			Symbol:      r.Symbol,
 			IsEnabled:   ToBool(r.IsEnabled),
-			StartDate:   dbDate(r.StartDate),
+			StartDate:   TradeDate(r.StartDate),
 			StartPrice:  ToRat(r.StartPrice),
 			Shares:      r.Shares,
 			StopPercent: ToRat(r.StopPercent),
@@ -373,11 +379,7 @@ func (api *API) RecordHistory(symbol string) (err error) {
 	// Extract the last-fetched date from the db record, assuming NY time:
 	ld, err := api.getScalars(`select h.Date, h.TradeDayIndex from StockHistory h where (h.Symbol = ?1) and (datetime(h.Date) = (select max(datetime(Date)) from StockHistory where Symbol = h.Symbol))`, symbol)
 	if ld[0] != nil {
-		tmp, err := TradeDateTime(ld[0].(string))
-		if err != nil {
-			return err
-		}
-		lastDate = TruncDate(tmp)
+		lastDate = TruncDate(TradeDateTime(ld[0].(string)))
 		lastTradeDay = ld[1].(int64)
 	} else {
 		// Find earliest date of interest for history:
@@ -454,7 +456,7 @@ func (api *API) RecordHistory(symbol string) (err error) {
 func (api *API) RecordTrends(symbol string) (err error) {
 	_, err = api.db.Exec(`
 replace into StockHistoryTrend (Symbol, Date, Avg200Day, Avg50Day, SMAPercent)
-select Symbol, Date, Avg200, Avg50, ((Avg200 / Avg50) - 1) * 100 as SMAPercent
+select Symbol, Date, Avg200, Avg50, ((Avg50 / Avg200) - 1) * 100 as SMAPercent
 from (
 	select h.Symbol, h.Date
 	     , (select avg(cast(Closing as real)) from StockHistory h0 where (h0.Symbol = h.Symbol) and (h0.TradeDayIndex >= (h.TradeDayIndex - 200))) as Avg200

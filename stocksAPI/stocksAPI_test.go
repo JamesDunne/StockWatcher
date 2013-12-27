@@ -155,3 +155,13 @@ func TestRecordTrends(t *testing.T) {
 		}
 	}
 }
+
+func TestGetOwnedDetailsNowForUser(t *testing.T) {
+	stocks, err := api.GetOwnedDetailsNowForUser(1)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	fmt.Printf("detail stocks: %v\n", stocks)
+}
