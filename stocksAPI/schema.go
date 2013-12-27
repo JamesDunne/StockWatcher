@@ -22,7 +22,7 @@ func NewAPI(dbPath string) (api *API, err error) {
 	api = &API{db: db}
 
 	// Track historical stock data:
-	if err = api.ddl(`
+	api.ddl(`
 create table if not exists StockHistory (
 	Symbol TEXT NOT NULL,
 	Date TEXT NOT NULL,
@@ -33,22 +33,16 @@ create table if not exists StockHistory (
 	High TEXT NOT NULL,
 	Volume INTEGER NOT NULL,
 	CONSTRAINT PK_StockHistory PRIMARY KEY (Symbol, Date)
-)`); err != nil {
-		return nil, err
-	}
-
-	// Index for historical data:
-	if err = api.ddl(`
+)`,
+		// Index for historical data:
+		`
 create index if not exists IX_StockHistory_Closing on StockHistory (
 	Symbol ASC,
 	Date ASC,
 	Closing ASC
-)`); err != nil {
-		return nil, err
-	}
-
-	// StockHistoryTrend to store trend information per stock per date:
-	if err = api.ddl(`
+)`,
+		// StockHistoryTrend to store trend information per stock per date:
+		`
 create table if not exists StockHistoryTrend (
 	Symbol TEXT NOT NULL,
 	Date TEXT NOT NULL,
@@ -56,53 +50,52 @@ create table if not exists StockHistoryTrend (
 	Avg50Day TEXT NOT NULL,
 	SMAPercent TEXT NOT NULL,	-- simple moving average
 	CONSTRAINT PK_StockHistoryTrend PRIMARY KEY (Symbol, Date)
-)`); err != nil {
-		return nil, err
-	}
-
-	// Index for trend data:
-	if err = api.ddl(`
+)`,
+		// Index for trend data:
+		`
 create index if not exists IX_StockHistoryTrend on StockHistoryTrend (
 	Symbol ASC,
 	Date ASC,
 	Avg200Day,
 	Avg50Day,
 	SMAPercent
-)`); err != nil {
-		return nil, err
-	}
-
-	// Create user tables:
-	if err = api.ddl(`
+)`,
+		// Track hourly stock data:
+		`
+create table if not exists StockHourly (
+	Symbol TEXT NOT NULL,
+	DateTime TEXT NOT NULL,
+	Current TEXT NOT NULL,
+	CONSTRAINT PK_StockHourly PRIMARY KEY (Symbol, DateTime)
+)`,
+		// Index for hourly data:
+		`
+create index if not exists IX_StockHourly on StockHourly (
+	Symbol ASC,
+	DateTime ASC,
+	Current
+)`,
+		// Create user tables:
+		`
 create table if not exists User (
 	PrimaryEmail TEXT NOT NULL,
 	Name TEXT NOT NULL,
 	NotificationTimeout INTEGER,
 	CONSTRAINT PK_User PRIMARY KEY (PrimaryEmail)
-)`); err != nil {
-		return nil, err
-	}
-
-	if err = api.ddl(`
+)`, `
 create table if not exists UserEmail (
 	Email TEXT NOT NULL,
 	UserID INTEGER NOT NULL,
 	CONSTRAINT PK_UserEmail PRIMARY KEY (Email)
-)`); err != nil {
-		return nil, err
-	}
-
-	// Index for user emails:
-	if err = api.ddl(`
+)`,
+		// Index for user emails:
+		`
 create unique index if not exists IX_UserEmail on UserEmail (
 	Email ASC,
 	UserID
-)`); err != nil {
-		return nil, err
-	}
-
-	// Owned stocks:
-	if err = api.ddl(`
+)`,
+		// Owned stocks:
+		`
 create table if not exists StockOwned (
 	UserID INTEGER NOT NULL,
 	Symbol TEXT NOT NULL,
@@ -114,12 +107,9 @@ create table if not exists StockOwned (
 	StopPercent TEXT NOT NULL,
 	LastNotificationDate TEXT,
 	CONSTRAINT PK_StockOwned PRIMARY KEY (UserID, Symbol, BuyDate)
-)`); err != nil {
-		return nil, err
-	}
-
-	// Watched stocks:
-	if err = api.ddl(`
+)`,
+		// Watched stocks:
+		`
 create table if not exists StockWatch (
 	UserID INTEGER NOT NULL,
 	Symbol TEXT NOT NULL,
@@ -130,18 +120,12 @@ create table if not exists StockWatch (
 	StopPercent TEXT NOT NULL,
 	LastNotificationDate TEXT,
 	CONSTRAINT PK_StockWatch PRIMARY KEY (UserID, Symbol)
-)`); err != nil {
-		return nil, err
-	}
-
-	if err = api.ddl(`
+)`, `
 create index if not exists IX_StockWatch on StockWatch (
 	UserID ASC,
 	Symbol ASC,
 	IsEnabled
-)`); err != nil {
-		return nil, err
-	}
+)`)
 
 	// Get today's date in NY time:
 	api.today = TruncDate(time.Now().In(LocNY))

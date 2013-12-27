@@ -14,12 +14,13 @@ import (
 
 // ------------------------------- private API utility functions:
 
-func (api *API) ddl(cmd string) (err error) {
-	if _, err = api.db.Exec(cmd); err != nil {
-		api.db.Close()
-		return fmt.Errorf("%s\n%s", cmd, err)
+func (api *API) ddl(cmds ...string) {
+	for _, cmd := range cmds {
+		if _, err := api.db.Exec(cmd); err != nil {
+			api.db.Close()
+			panic(fmt.Errorf("%s\n%s", cmd, err))
+		}
 	}
-	return nil
 }
 
 // Gets a single scalar value from a DB query:

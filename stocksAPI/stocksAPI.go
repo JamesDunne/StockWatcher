@@ -33,6 +33,10 @@ type API struct {
 func (api *API) Today() time.Time           { return api.today }
 func (api *API) LastTradingDate() time.Time { return api.lastTradingDate }
 
+func (api *API) CurrentHour() time.Time { return time.Now().Truncate(time.Hour) }
+
+type UserID int64
+
 // ------------------------- API functions:
 
 const dateFmt = "2006-01-02"
@@ -45,7 +49,7 @@ func (api *API) Close() {
 }
 
 type User struct {
-	UserID          int
+	UserID          UserID
 	PrimaryEmail    string
 	Name            string
 	SecondaryEmails []string
@@ -62,7 +66,7 @@ func (api *API) AddUser(user *User) (err error) {
 	if err != nil {
 		return
 	}
-	user.UserID = int(userID)
+	user.UserID = UserID(userID)
 
 	if len(user.SecondaryEmails) > 0 {
 		emails := make([][]interface{}, 0, len(user.SecondaryEmails))
@@ -80,7 +84,7 @@ func (api *API) AddUser(user *User) (err error) {
 
 func (api *API) GetUserByEmail(email string) (user *User, err error) {
 	dbUser := new(struct {
-		UserID              int    `db:"UserID"`
+		UserID              int64  `db:"UserID"`
 		PrimaryEmail        string `db:"PrimaryEmail"`
 		Name                string `db:"Name"`
 		NotificationTimeout int    `db:"NotificationTimeout"`
@@ -110,7 +114,7 @@ select u.rowid as UserID, u.PrimaryEmail, u.Name, u.NotificationTimeout from Use
 	}
 
 	user = &User{
-		UserID:              dbUser.UserID,
+		UserID:              UserID(dbUser.UserID),
 		PrimaryEmail:        dbUser.PrimaryEmail,
 		Name:                dbUser.Name,
 		NotificationTimeout: time.Duration(dbUser.NotificationTimeout) * time.Second,
@@ -125,9 +129,9 @@ select u.rowid as UserID, u.PrimaryEmail, u.Name, u.NotificationTimeout from Use
 }
 
 // Add an owned stock for UserID:
-func (api *API) AddOwnedStock(userID int, symbol string, buyDate string, buyPrice *big.Rat, shares int, stopPercent *big.Rat) (err error) {
+func (api *API) AddOwnedStock(userID UserID, symbol string, buyDate string, buyPrice *big.Rat, shares int, stopPercent *big.Rat) (err error) {
 	_, err = api.db.Exec(`insert or ignore into StockOwned (UserID, Symbol, BuyDate, IsEnabled, BuyPrice, Shares, StopPercent) values (?1,?2,?3,1,?4,?5,?6)`,
-		userID,
+		int64(userID),
 		symbol,
 		buyDate,
 		buyPrice.FloatString(2),
@@ -138,9 +142,9 @@ func (api *API) AddOwnedStock(userID int, symbol string, buyDate string, buyPric
 }
 
 // Add a stock to watch for UserID:
-func (api *API) AddWatchedStock(userID int, symbol string, startDate string, startPrice *big.Rat, stopPercent *big.Rat) (err error) {
+func (api *API) AddWatchedStock(userID UserID, symbol string, startDate string, startPrice *big.Rat, stopPercent *big.Rat) (err error) {
 	_, err = api.db.Exec(`insert or ignore into StockWatch (UserID, Symbol, IsEnabled, StartDate, StartPrice, StopPercent) values (?1,?2,1,?3,?4,?5)`,
-		userID,
+		int64(userID),
 		symbol,
 		startDate,
 		startPrice.FloatString(2),
@@ -151,8 +155,8 @@ func (api *API) AddWatchedStock(userID int, symbol string, startDate string, sta
 
 // A stock owned by UserID.
 type OwnedStock struct {
-	ID          int
-	UserID      int
+	ID          int64
+	UserID      UserID
 	Symbol      string
 	IsEnabled   bool
 	BuyDate     time.Time
@@ -162,11 +166,11 @@ type OwnedStock struct {
 }
 
 // Gets all stocks owned by UserID:
-func (api *API) GetOwnedStocksByUser(userID int) (owned []OwnedStock, err error) {
+func (api *API) GetOwnedStocksByUser(userID UserID) (owned []OwnedStock, err error) {
 	// Anonymous structs are cool.
 	rows := make([]struct {
-		ID          int    `db:"ID"`
-		UserID      int    `db:"UserID"`
+		ID          int64  `db:"ID"`
+		UserID      int64  `db:"UserID"`
 		Symbol      string `db:"Symbol"`
 		BuyDate     string `db:"BuyDate"`
 		IsEnabled   int    `db:"IsEnabled"`
@@ -186,7 +190,7 @@ select rowid as ID, UserID, Symbol, BuyDate, IsEnabled, BuyPrice, Shares, StopPe
 	for _, r := range rows {
 		owned = append(owned, OwnedStock{
 			ID:          r.ID,
-			UserID:      r.UserID,
+			UserID:      UserID(r.UserID),
 			Symbol:      r.Symbol,
 			IsEnabled:   ToBool(r.IsEnabled),
 			BuyDate:     TradeDate(r.BuyDate),
@@ -199,113 +203,10 @@ select rowid as ID, UserID, Symbol, BuyDate, IsEnabled, BuyPrice, Shares, StopPe
 	return
 }
 
-// A stock owned by UserID with details.
-type OwnedStockDetails struct {
-	ID          int64
-	UserID      int64
-	Symbol      string
-	IsEnabled   bool
-	BuyDate     time.Time
-	BuyPrice    *big.Rat
-	Shares      int64
-	StopPercent *big.Rat
-
-	CurrPrice       *big.Rat
-	TStopPrice      *big.Rat
-	LastCloseDate   time.Time
-	Avg200Day       float64
-	Avg50Day        float64
-	SMAPercent      float64
-	GainLossPercent float64
-	GainLossDollar  *big.Rat
-}
-
-// NOTE: Requires StockHistory and StockHistoryTrend to be populated.
-func (api *API) GetOwnedDetailsNowForUser(userID int64) (details []OwnedStockDetails, err error) {
-	// Anonymous structs are cool.
-	rows := make([]struct {
-		ID          int64  `db:"ID"`
-		UserID      int64  `db:"UserID"`
-		Symbol      string `db:"Symbol"`
-		BuyDate     string `db:"BuyDate"`
-		IsEnabled   int    `db:"IsEnabled"`
-		BuyPrice    string `db:"BuyPrice"`
-		Shares      int64  `db:"Shares"`
-		StopPercent string `db:"StopPercent"`
-
-		Date         string  `db:"Date"`
-		Avg200Day    float64 `db:"Avg200Day"`
-		Avg50Day     float64 `db:"Avg50Day"`
-		SMAPercent   float64 `db:"SMAPercent"`
-		HighestClose float64 `db:"HighestClose"`
-		LowestClose  float64 `db:"LowestClose"`
-	}, 0, 6)
-
-	err = api.db.Select(&rows, `
-select ID, UserID, Symbol, BuyDate, IsEnabled, BuyPrice, Shares, StopPercent, Date, Avg200Day, Avg50Day, SMAPercent
-     , (select max(cast(h.Closing as real)) from StockHistory h where h.Symbol = o.Symbol) as HighestClose
-     , (select min(cast(h.Closing as real)) from StockHistory h where h.Symbol = o.Symbol) as LowestClose
-from (
-	select o.rowid as ID, o.UserID, o.Symbol, o.BuyDate, o.IsEnabled, o.BuyPrice, o.Shares, o.StopPercent
-	     , t.Date, t.Avg200Day, t.Avg50Day, t.SMAPercent
-	from StockOwned o
-	join StockHistoryTrend t on t.Symbol = o.Symbol
-	where o.UserID = ?1
-	order by t.Date desc limit 1
-) o`, userID)
-	if err != nil {
-		return
-	}
-
-	// Copy raw DB rows into OwnedStockDetails records:
-	details = make([]OwnedStockDetails, 0, len(rows))
-	for _, r := range rows {
-		// Get current price from Yahoo:
-		currPrice, err := yql.GetCurrent(r.Symbol)
-		if err != nil {
-			return nil, err
-		}
-
-		d := OwnedStockDetails{
-			ID:            r.ID,
-			UserID:        r.UserID,
-			Symbol:        r.Symbol,
-			IsEnabled:     ToBool(r.IsEnabled),
-			BuyDate:       TradeDate(r.BuyDate),
-			BuyPrice:      ToRat(r.BuyPrice),
-			Shares:        r.Shares,
-			StopPercent:   ToRat(r.StopPercent),
-			LastCloseDate: TradeDateTime(r.Date),
-
-			Avg200Day:  r.Avg200Day,
-			Avg50Day:   r.Avg50Day,
-			SMAPercent: r.SMAPercent,
-		}
-
-		d.CurrPrice = currPrice
-		if d.Shares > 0 {
-			d.TStopPrice = new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Sub(ToRat("100"), d.StopPercent), ToRat("0.01"))), FloatToRat(r.HighestClose))
-		} else {
-			// Shorted:
-			d.TStopPrice = new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Add(ToRat("100"), d.StopPercent), ToRat("0.01"))), FloatToRat(r.LowestClose))
-		}
-
-		// gain$ = (currPrice - buyPrice) * shares
-		d.GainLossDollar = new(big.Rat).Mul(new(big.Rat).Sub(currPrice, d.BuyPrice), IntToRat(d.Shares))
-		// gain% = ((currPrice - buyPrice) / buyPrice) * 100
-		buyPriceFlt := RatToFloat(d.BuyPrice)
-		d.GainLossPercent = ((RatToFloat(currPrice) - buyPriceFlt) * 100.0 / buyPriceFlt)
-
-		details = append(details, d)
-	}
-
-	return
-}
-
 // A stock watched by the UserID.
 type WatchedStock struct {
-	ID          int
-	UserID      int
+	ID          int64
+	UserID      UserID
 	Symbol      string
 	IsEnabled   bool
 	StartDate   time.Time
@@ -315,11 +216,11 @@ type WatchedStock struct {
 }
 
 // Gets all stocks watched by UserID:
-func (api *API) GetWatchedStocksByUser(userID int) (watched []WatchedStock, err error) {
+func (api *API) GetWatchedStocksByUser(userID UserID) (watched []WatchedStock, err error) {
 	// Anonymous structs are cool.
 	rows := make([]struct {
-		ID          int    `db:"ID"`
-		UserID      int    `db:"UserID"`
+		ID          int64  `db:"ID"`
+		UserID      int64  `db:"UserID"`
 		Symbol      string `db:"Symbol"`
 		IsEnabled   int    `db:"IsEnabled"`
 		StartDate   string `db:"StartDate"`
@@ -329,7 +230,7 @@ func (api *API) GetWatchedStocksByUser(userID int) (watched []WatchedStock, err 
 	}, 0, 6)
 
 	err = api.db.Select(&rows, `
-select rowid as ID, UserID, Symbol, IsEnabled, StartDate, StartPrice, StopPercent from StockWatch where UserID = ?1`, userID)
+select rowid as ID, UserID, Symbol, IsEnabled, StartDate, StartPrice, StopPercent from StockWatch where UserID = ?1`, int64(userID))
 	if err != nil {
 		return
 	}
@@ -339,7 +240,7 @@ select rowid as ID, UserID, Symbol, IsEnabled, StartDate, StartPrice, StopPercen
 	for _, r := range rows {
 		watched = append(watched, WatchedStock{
 			ID:          r.ID,
-			UserID:      r.UserID,
+			UserID:      UserID(r.UserID),
 			Symbol:      r.Symbol,
 			IsEnabled:   ToBool(r.IsEnabled),
 			StartDate:   TradeDate(r.StartDate),
@@ -471,5 +372,154 @@ from (
 	where (h.Symbol = ?1)
 	  and (h.TradeDayIndex > 200)
 )`, symbol)
+	return
+}
+
+// Checks if the current hourly price has been fetched from Yahoo or not and fetches it into the StockHourly table if needed.
+func (api *API) RecordCurrentHourlyPrice(symbol string) (recorded bool, currHour time.Time) {
+	recorded = false
+
+	lastTimeStr, err := api.getScalar(`select max(datetime(DateTime)) from StockHourly where Symbol = ?1`, symbol)
+	if err != nil {
+		panic(err)
+	}
+
+	// Determine if we need to fetch from Yahoo or not:
+	currHour = api.CurrentHour()
+	needFetch := false
+	if lastTimeStr == nil {
+		needFetch = true
+	} else {
+		lastHour := TradeDateTime(lastTimeStr.(string)).Truncate(time.Hour)
+		if lastHour.Before(currHour) {
+			needFetch = true
+		}
+	}
+
+	if !needFetch {
+		return
+	}
+
+	// Get current price from Yahoo:
+	currPrice, err := yql.GetCurrent(symbol)
+	if err != nil {
+		panic(err)
+	}
+
+	// Record the current hourly price:
+	_, err = api.db.Exec(`replace into StockHourly (Symbol, DateTime, Current) values (?1, ?2, ?3)`,
+		symbol,
+		currHour.Format(time.RFC3339),
+		currPrice.FloatString(2),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	recorded = true
+	return
+}
+
+// A stock owned by UserID with details.
+type OwnedStockDetails struct {
+	ID          int64
+	UserID      int64
+	Symbol      string
+	IsEnabled   bool
+	BuyDate     time.Time
+	BuyPrice    *big.Rat
+	Shares      int64
+	StopPercent *big.Rat
+
+	CurrPrice       *big.Rat
+	TStopPrice      *big.Rat
+	LastCloseDate   time.Time
+	Avg200Day       float64
+	Avg50Day        float64
+	SMAPercent      float64
+	GainLossPercent float64
+	GainLossDollar  *big.Rat
+}
+
+// NOTE: Requires StockHistory, StockHistoryTrend, and StockHourly to be populated.
+func (api *API) GetOwnedDetailsForUser(userID UserID) (details []OwnedStockDetails, err error) {
+	// Anonymous structs are cool.
+	rows := make([]struct {
+		ID          int64  `db:"ID"`
+		UserID      int64  `db:"UserID"`
+		Symbol      string `db:"Symbol"`
+		BuyDate     string `db:"BuyDate"`
+		IsEnabled   int    `db:"IsEnabled"`
+		BuyPrice    string `db:"BuyPrice"`
+		Shares      int64  `db:"Shares"`
+		StopPercent string `db:"StopPercent"`
+
+		Current string `db:"Current"`
+
+		Date         string  `db:"Date"`
+		Avg200Day    float64 `db:"Avg200Day"`
+		Avg50Day     float64 `db:"Avg50Day"`
+		SMAPercent   float64 `db:"SMAPercent"`
+		HighestClose float64 `db:"HighestClose"`
+		LowestClose  float64 `db:"LowestClose"`
+	}, 0, 6)
+
+	err = api.db.Select(&rows, `
+select ID, UserID, Symbol, BuyDate, IsEnabled, BuyPrice, Shares, StopPercent
+     , Current
+     , Date, Avg200Day, Avg50Day, SMAPercent
+     , (select max(cast(h.Closing as real)) from StockHistory h where h.Symbol = o.Symbol) as HighestClose
+     , (select min(cast(h.Closing as real)) from StockHistory h where h.Symbol = o.Symbol) as LowestClose
+from (
+	select o.rowid as ID, o.UserID, o.Symbol, o.BuyDate, o.IsEnabled, o.BuyPrice, o.Shares, o.StopPercent
+	     , h.Current
+	     , t.Date, t.Avg200Day, t.Avg50Day, t.SMAPercent
+	from StockOwned o
+	join StockHistoryTrend t on t.Symbol = o.Symbol
+	join StockHourly h on h.Symbol = o.Symbol and h.DateTime = ?2
+	where o.UserID = ?1
+	order by t.Date desc limit 1
+) o`, int64(userID), api.CurrentHour().Format(time.RFC3339))
+	if err != nil {
+		return
+	}
+
+	// Copy raw DB rows into OwnedStockDetails records:
+	details = make([]OwnedStockDetails, 0, len(rows))
+	for _, r := range rows {
+		currPrice := ToRat(r.Current)
+		d := OwnedStockDetails{
+			ID:            r.ID,
+			UserID:        r.UserID,
+			Symbol:        r.Symbol,
+			IsEnabled:     ToBool(r.IsEnabled),
+			BuyDate:       TradeDate(r.BuyDate),
+			BuyPrice:      ToRat(r.BuyPrice),
+			Shares:        r.Shares,
+			StopPercent:   ToRat(r.StopPercent),
+			LastCloseDate: TradeDateTime(r.Date),
+
+			Avg200Day:  r.Avg200Day,
+			Avg50Day:   r.Avg50Day,
+			SMAPercent: r.SMAPercent,
+		}
+
+		d.CurrPrice = currPrice
+		if d.Shares > 0 {
+			d.TStopPrice = new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Sub(ToRat("100"), d.StopPercent), ToRat("0.01"))), FloatToRat(r.HighestClose))
+		} else {
+			// Shorted:
+			d.TStopPrice = new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Add(ToRat("100"), d.StopPercent), ToRat("0.01"))), FloatToRat(r.LowestClose))
+		}
+
+		// gain$ = (currPrice - buyPrice) * shares
+		d.GainLossDollar = new(big.Rat).Mul(new(big.Rat).Sub(currPrice, d.BuyPrice), IntToRat(d.Shares))
+		// gain% = ((currPrice - buyPrice) / buyPrice) * 100
+		buyPriceFlt := RatToFloat(d.BuyPrice)
+		d.GainLossPercent = ((RatToFloat(currPrice) - buyPriceFlt) * 100.0 / buyPriceFlt)
+
+		details = append(details, d)
+	}
+
 	return
 }
