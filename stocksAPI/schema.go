@@ -143,7 +143,10 @@ from StockOwned o
 join StockStats t on t.Symbol = h.Symbol and t.TradeDayIndex = (select max(TradeDayIndex) from StockHistory where Symbol = h.Symbol)
 join StockHourly h on h.Symbol = o.Symbol
 join (
-	select o.rowid, h.Symbol, min(cast(h.Closing as real)) as LowestClose, max(cast(h.Closing as real)) as HighestClose
+	-- Find lowest and highest closing price since buy date per each symbol:
+	select o.rowid, h.Symbol
+	     , min(cast(h.Closing as real)) as LowestClose
+		 , max(cast(h.Closing as real)) as HighestClose
 	from StockOwned o
 	join StockHistory h on h.Symbol = o.Symbol
 	where datetime(h.Date) >= datetime(o.BuyDate)
