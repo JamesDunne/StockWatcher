@@ -135,10 +135,21 @@ func ToRat(v string) *big.Rat {
 	return rat
 }
 
+func IntToRat(v int64) *big.Rat {
+	rat := new(big.Rat)
+	rat.SetInt64(v)
+	return rat
+}
+
 func FloatToRat(v float64) *big.Rat {
 	rat := new(big.Rat)
 	rat.SetFloat64(v)
 	return rat
+}
+
+func RatToFloat(v *big.Rat) float64 {
+	f, _ := v.Float64()
+	return f
 }
 
 // remove the time component of a datetime to get just a date at 00:00:00

@@ -201,13 +201,13 @@ select rowid as ID, UserID, Symbol, BuyDate, IsEnabled, BuyPrice, Shares, StopPe
 
 // A stock owned by UserID with details.
 type OwnedStockDetails struct {
-	ID          int
-	UserID      int
+	ID          int64
+	UserID      int64
 	Symbol      string
 	IsEnabled   bool
 	BuyDate     time.Time
 	BuyPrice    *big.Rat
-	Shares      int
+	Shares      int64
 	StopPercent *big.Rat
 
 	CurrPrice       *big.Rat
@@ -221,16 +221,16 @@ type OwnedStockDetails struct {
 }
 
 // NOTE: Requires StockHistory and StockHistoryTrend to be populated.
-func (api *API) GetOwnedDetailsNowForUser(userID int) (details []OwnedStockDetails, err error) {
+func (api *API) GetOwnedDetailsNowForUser(userID int64) (details []OwnedStockDetails, err error) {
 	// Anonymous structs are cool.
 	rows := make([]struct {
-		ID          int    `db:"ID"`
-		UserID      int    `db:"UserID"`
+		ID          int64  `db:"ID"`
+		UserID      int64  `db:"UserID"`
 		Symbol      string `db:"Symbol"`
 		BuyDate     string `db:"BuyDate"`
 		IsEnabled   int    `db:"IsEnabled"`
 		BuyPrice    string `db:"BuyPrice"`
-		Shares      int    `db:"Shares"`
+		Shares      int64  `db:"Shares"`
 		StopPercent string `db:"StopPercent"`
 
 		Date         string  `db:"Date"`
@@ -289,6 +289,12 @@ from (
 			// Shorted:
 			d.TStopPrice = new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Add(ToRat("100"), d.StopPercent), ToRat("0.01"))), FloatToRat(r.LowestClose))
 		}
+
+		// gain$ = (currPrice - buyPrice) * shares
+		d.GainLossDollar = new(big.Rat).Mul(new(big.Rat).Sub(currPrice, d.BuyPrice), IntToRat(d.Shares))
+		// gain% = ((currPrice - buyPrice) / buyPrice) * 100
+		buyPriceFlt := RatToFloat(d.BuyPrice)
+		d.GainLossPercent = ((RatToFloat(currPrice) - buyPriceFlt) * 100.0 / buyPriceFlt)
 
 		details = append(details, d)
 	}

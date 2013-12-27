@@ -16,8 +16,8 @@ var err error
 // These test functions run in sequential order as defined here:
 
 func TestParseNullTime(t *testing.T) {
-	fmt.Printf("null time: %v\n", parseNullTime(dateFmt, nil))
-	fmt.Printf("null time: %v\n", parseNullTime(dateFmt, "2013-01-01"))
+	fmt.Printf("null time: %+v\n", parseNullTime(dateFmt, nil))
+	fmt.Printf("null time: %+v\n", parseNullTime(dateFmt, "2013-01-01"))
 }
 
 func TestTruncDate(t *testing.T) {
@@ -63,7 +63,7 @@ func TestGetUserByEmail(t *testing.T) {
 		return
 	}
 
-	fmt.Printf("user: %v\n", user)
+	fmt.Printf("user1: %+v\n", user)
 }
 
 func TestGetUserBySecondaryEmail(t *testing.T) {
@@ -73,7 +73,7 @@ func TestGetUserBySecondaryEmail(t *testing.T) {
 		return
 	}
 
-	fmt.Printf("user: %v\n", user)
+	fmt.Printf("user1: %+v\n", user)
 }
 
 func TestAddOwnedStock(t *testing.T) {
@@ -99,7 +99,7 @@ func TestGetOwnedStocks(t *testing.T) {
 		return
 	}
 
-	fmt.Printf("owned stocks: %v\n", stocks)
+	fmt.Printf("owned stocks:    %+v\n", stocks)
 }
 
 func TestAddWatchedStock(t *testing.T) {
@@ -125,7 +125,7 @@ func TestGetWatchedStocks(t *testing.T) {
 		return
 	}
 
-	fmt.Printf("watched stocks: %v\n", stocks)
+	fmt.Printf("watched stocks:  %+v\n", stocks)
 }
 
 func TestGetAllTrackedSymbols(t *testing.T) {
@@ -135,7 +135,7 @@ func TestGetAllTrackedSymbols(t *testing.T) {
 		return
 	}
 
-	fmt.Printf("tracked symbols: %v\n", symbols)
+	fmt.Printf("tracked symbols: %+v\n", symbols)
 }
 
 func TestRecordHistory(t *testing.T) {
@@ -163,5 +163,5 @@ func TestGetOwnedDetailsNowForUser(t *testing.T) {
 		return
 	}
 
-	fmt.Printf("detail stocks: %v\n", stocks)
+	fmt.Printf("detail stocks:   %+v\n", stocks)
 }
