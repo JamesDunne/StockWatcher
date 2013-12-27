@@ -26,6 +26,7 @@ func NewAPI(dbPath string) (api *API, err error) {
 create table if not exists StockHistory (
 	Symbol TEXT NOT NULL,
 	Date TEXT NOT NULL,
+	TradeDayIndex INTEGER NOT NULL,
 	Closing TEXT NOT NULL,
 	Opening TEXT NOT NULL,
 	Low TEXT NOT NULL,

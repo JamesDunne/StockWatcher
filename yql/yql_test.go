@@ -36,12 +36,23 @@ func TestYqlExtractResponseObject(t *testing.T) {
 	fmt.Println(hist)
 }
 
+func TestGetCurrent(t *testing.T) {
+	price, err := GetCurrent("MSFT")
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	fmt.Println(price.FloatString(2))
+}
+
 func TestGetHistory(t *testing.T) {
 	startDate, err := time.Parse(dateFmt, "2011-11-26")
 	endDate, err := time.Parse(dateFmt, "2013-12-25")
 	res, err := GetHistory("MSFT", startDate, endDate)
 	if err != nil {
 		t.Fatal(err)
+		return
 	}
 
 	//_ = res

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"reflect"
 	"sort"
 	"strings"
@@ -31,11 +32,6 @@ type yqlResponse struct {
 		// TODO(jsd): Use `*json.RawMessage` type instead.
 		Results map[string]interface{} `json:"results"`
 	} `json:"query"`
-}
-
-type Quote struct {
-	Symbol             string
-	LastTradePriceOnly string
 }
 
 type History struct {
@@ -196,6 +192,31 @@ func (l *yearQueryResultList) Swap(i, j int) {
 	l.items[i], l.items[j] = l.items[j], l.items[i]
 }
 
+type quote struct {
+	Symbol             string
+	LastTradePriceOnly string
+}
+
+// Gets the current trading price for a symbol.
+func GetCurrent(symbol string) (price *big.Rat, err error) {
+	quot := make([]quote, 0, 1)
+	query := fmt.Sprintf(`select LastTradePriceOnly from yahoo.finance.quote where symbol = "%s"`, symbol)
+	err = Get(&quot, query)
+	if err != nil {
+		return
+	}
+
+	// Nothing?
+	if len(quot) == 0 {
+		return nil, nil
+	}
+
+	price = new(big.Rat)
+	price.SetString(quot[0].LastTradePriceOnly)
+	return price, nil
+}
+
+// Gets all historical data for a symbol between startDate and endDate.
 func GetHistory(symbol string, startDate, endDate time.Time) (results []History, err error) {
 	// NOTE(jsd): YQL queries over stocks only respond to queries requesting up to 365 date records; results is nil otherwise.
 	days := int(endDate.Sub(startDate) / (time.Duration(24) * time.Hour))

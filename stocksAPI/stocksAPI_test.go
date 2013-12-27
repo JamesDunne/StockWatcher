@@ -10,6 +10,8 @@ import (
 const tmpdb = "./tmp.db"
 
 var api *API
+var symbols []string
+var err error
 
 // These test functions run in sequential order as defined here:
 
@@ -82,26 +84,74 @@ func TestAddOwnedStock(t *testing.T) {
 	}
 }
 
-func TestGetTrackedSymbols(t *testing.T) {
-	symbols, err := api.GetTrackedSymbols()
+func TestAddOwnedStock2(t *testing.T) {
+	err := api.AddOwnedStock(1, "AAPL", "2012-09-01", ToRat("400.00"), +10, ToRat("20.00"))
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+}
+
+func TestGetOwnedStocks(t *testing.T) {
+	stocks, err := api.GetOwnedStocksByUser(1)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
-	fmt.Printf("symbols: %v\n", symbols)
+	fmt.Printf("owned stocks: %v\n", stocks)
+}
+
+func TestAddWatchedStock(t *testing.T) {
+	err := api.AddWatchedStock(1, "AAPL", "2012-09-01", ToRat("400.00"), ToRat("20.00"))
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+}
+
+func TestAddWatchedStock2(t *testing.T) {
+	err := api.AddWatchedStock(2, "AAPL", "2012-09-01", ToRat("400.00"), ToRat("20.00"))
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+}
+
+func TestGetWatchedStocks(t *testing.T) {
+	stocks, err := api.GetWatchedStocksByUser(1)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	fmt.Printf("watched stocks: %v\n", stocks)
+}
+
+func TestGetAllTrackedSymbols(t *testing.T) {
+	symbols, err = api.GetAllTrackedSymbols()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	fmt.Printf("tracked symbols: %v\n", symbols)
 }
 
 func TestRecordHistory(t *testing.T) {
-	err := api.RecordHistory("MSFT")
-	if err != nil {
-		t.Fatal(err)
+	for _, symbol := range symbols {
+		err := api.RecordHistory(symbol)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
 func TestRecordTrends(t *testing.T) {
-	err := api.RecordTrends("MSFT")
-	if err != nil {
-		t.Fatal(err)
+	for _, symbol := range symbols {
+		err := api.RecordTrends(symbol)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }

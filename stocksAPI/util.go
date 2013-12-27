@@ -2,6 +2,7 @@ package stocksAPI
 
 import (
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 )
@@ -98,6 +99,14 @@ func (api *API) bulkInsert(tableName string, columns []string, rows [][]interfac
 	})
 }
 
+func dbDate(str string) time.Time {
+	t, err := time.ParseInLocation(dateFmt, str, LocNY)
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
 func parseNullTime(format string, v interface{}) *time.Time {
 	if v == nil {
 		return nil
@@ -124,5 +133,45 @@ func minNullTime(a, b *time.Time) *time.Time {
 		} else {
 			return a
 		}
+	}
+}
+
+// Converts a string into a `*big.Rat` which is an arbitrary precision rational number stored in decimal format
+func ToRat(v string) *big.Rat {
+	rat := new(big.Rat)
+	rat.SetString(v)
+	return rat
+}
+
+func FloatToRat(v float64) *big.Rat {
+	rat := new(big.Rat)
+	rat.SetFloat64(v)
+	return rat
+}
+
+// remove the time component of a datetime to get just a date at 00:00:00
+func TruncDate(t time.Time) time.Time {
+	hour, min, sec := t.Clock()
+	nano := t.Nanosecond()
+
+	d := time.Duration(0) - (time.Duration(nano) + time.Duration(sec)*time.Second + time.Duration(min)*time.Minute + time.Duration(hour)*time.Hour)
+	return t.Add(d)
+}
+
+// parses the date/time in RFC3339 format, assuming NY timezone:
+func TradeDateTime(str string) (t time.Time, err error) {
+	return time.ParseInLocation(time.RFC3339, str, LocNY)
+}
+
+// Check if the date is on a weekend:
+func IsWeekend(date time.Time) bool {
+	return date.Weekday() == 0 || date.Weekday() == 6
+}
+
+func ToBool(i int) bool {
+	if i == 0 {
+		return false
+	} else {
+		return true
 	}
 }
