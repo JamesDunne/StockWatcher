@@ -161,10 +161,9 @@ func projectOwnedDetails(rows []dbOwnedDetail) (details []OwnedDetails, err erro
 		// gain$ = (currPrice - buyPrice) * shares
 		d.GainLossDollar = new(big.Rat).Mul(new(big.Rat).Sub(currPrice, d.BuyPrice), IntToRat(d.Shares))
 
-		// TODO(jsd): This is incorrect. Fix it.
-		// gain% = ((currPrice - buyPrice) / buyPrice) * 100
+		// gain% = ((currPrice / buyPrice) - 1) * 100
 		buyPriceFlt := RatToFloat(d.BuyPrice)
-		d.GainLossPercent = ((RatToFloat(currPrice) - buyPriceFlt) * 100.0 / buyPriceFlt)
+		d.GainLossPercent = (((RatToFloat(currPrice) / buyPriceFlt) - 1.0) * 100.0)
 
 		// Add to list:
 		details = append(details, d)

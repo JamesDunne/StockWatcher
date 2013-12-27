@@ -64,7 +64,7 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	case "/login":
 		if r.Method == "GET" {
 			// Present login page:
-			http.ServeFile(w, r, path.Join(fsRoot, "login.html"))
+			http.ServeFile(w, r, path.Join(fsRoot, "static", "login.html"))
 			return
 		} else if r.Method == "POST" {
 			// Redirect to openid provider and instruct them to come back here at /auth/openid:

@@ -63,7 +63,7 @@ func main() {
 	// Define our commandline flags:
 	socketType := flag.String("t", "tcp", "socket type to listen on: 'unix', 'tcp', 'udp'")
 	socketAddr := flag.String("l", ":8080", "address to listen on")
-	fs := flag.String("fs", "./root", "Root directory of static files to serve")
+	fs := flag.String("fs", "./", "Root directory of served files and templates")
 	dbPathArg := flag.String("db", "./stocks.db", "Path to stocks.db database")
 	webHostArg := flag.String("host", "localhost:8080", "Host name of server; used for HTTP redirects")
 	mailServerArg := flag.String("mail-server", "localhost:25", "Address of SMTP server to use for sending email")
@@ -76,7 +76,7 @@ func main() {
 	mailutil.Server = *mailServerArg
 
 	// Parse template files:
-	ui, err := template.New("ui").ParseGlob(path.Join(fsRoot, "*.tmpl"))
+	ui, err := template.New("ui").ParseGlob(path.Join(fsRoot, "templates", "*.tmpl"))
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -124,7 +124,7 @@ func main() {
 
 	// Unsecured section:
 	// For serving static files:
-	http.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir(fsRoot))))
+	http.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir(path.Join(fsRoot, "static")))))
 	// Catch-all handler:
 	http.Handle("/", http.HandlerFunc(rootHandler))
 
