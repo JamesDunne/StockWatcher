@@ -205,3 +205,23 @@ func TestGetOwnedDetailsForSymbol(t *testing.T) {
 
 	fmt.Printf("detail stocks: %+v\n", stocks)
 }
+
+func TestGetWatchedDetailsForUser(t *testing.T) {
+	stocks, err := api.GetWatchedDetailsForUser(1)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	fmt.Printf("detail stocks: %+v\n", stocks)
+}
+
+func TestGetWatchedDetailsForSymbol(t *testing.T) {
+	stocks, err := api.GetWatchedDetailsForSymbol("AAPL")
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	fmt.Printf("detail stocks: %+v\n", stocks)
+}

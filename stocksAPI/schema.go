@@ -114,7 +114,7 @@ create index if not exists IX_StockOwned on StockOwned (
 )`,
 		// Watched stocks:
 		`
-create table if not exists StockWatch (
+create table if not exists StockWatched (
 	UserID INTEGER NOT NULL,
 	Symbol TEXT NOT NULL,
 	IsEnabled INTEGER NOT NULL,
@@ -123,16 +123,18 @@ create table if not exists StockWatch (
 	StartPrice TEXT NOT NULL,
 	TStopPercent TEXT NOT NULL,
 	LastTStopNotifyTime TEXT,
-	CONSTRAINT PK_StockWatch PRIMARY KEY (UserID, Symbol)
+	CONSTRAINT PK_StockWatched PRIMARY KEY (UserID, Symbol)
 )`, `
-create index if not exists IX_StockWatch on StockWatch (
+create index if not exists IX_StockWatched on StockWatched (
 	UserID ASC,
 	Symbol ASC,
 	IsEnabled
 )`)
 
 	// Create VIEWs:
-	api.ddl(`
+	api.ddl(
+		// StockOwnedDetail
+		`
 create view if not exists StockOwnedDetail
 as
 select o.rowid as ID, o.UserID, o.Symbol, o.BuyDate, o.IsEnabled, o.BuyPrice, o.Shares, o.TStopPercent, o.LastTStopNotifyTime
@@ -150,6 +152,27 @@ join (
 	from StockOwned o
 	join StockHistory h on h.Symbol = o.Symbol
 	where datetime(h.Date) >= datetime(o.BuyDate)
+	group by o.rowid, h.Symbol
+) e on e.rowid = o.rowid`,
+		// StockWatchedDetail
+		`
+create view if not exists StockWatchedDetail
+as
+select o.rowid as ID, o.UserID, o.Symbol, o.IsEnabled, o.StartDate, o.StartPrice, o.TStopPercent, o.LastTStopNotifyTime
+     , h.Current as CurrPrice, h.DateTime as CurrHour
+     , t.Date, t.Avg200Day, t.Avg50Day, t.SMAPercent
+     , e.HighestClose, e.LowestClose
+from StockWatched o
+join StockStats t on t.Symbol = h.Symbol and t.TradeDayIndex = (select max(TradeDayIndex) from StockHistory where Symbol = h.Symbol)
+join StockHourly h on h.Symbol = o.Symbol
+join (
+	-- Find lowest and highest closing price since start date per each symbol:
+	select o.rowid, h.Symbol
+	     , min(cast(h.Closing as real)) as LowestClose
+		 , max(cast(h.Closing as real)) as HighestClose
+	from StockWatched o
+	join StockHistory h on h.Symbol = o.Symbol
+	where datetime(h.Date) >= datetime(o.StartDate)
 	group by o.rowid, h.Symbol
 ) e on e.rowid = o.rowid`)
 

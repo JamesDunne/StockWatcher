@@ -112,13 +112,12 @@ func main() {
 		}
 	}
 
-	log.Printf("Fetching current prices...\n")
 	// Fetch current prices from Yahoo into the database:
+	log.Printf("Fetching current prices...\n")
 	api.GetCurrentHourlyPrices(symbols...)
 
-	log.Printf("Fetching current prices...\n")
 	for _, symbol := range symbols {
-		// Find details of owned stocks and their owners for this symbol:
+		// Calculate details of owned stocks and their owners for this symbol:
 		owned, err := api.GetOwnedDetailsForSymbol(symbol)
 		if err != nil {
 			panic(err)
@@ -160,7 +159,7 @@ func main() {
 
 					// Format subject and body:
 					subject := symbol + " price fell below " + own.TStopPrice.FloatString(2)
-					body := fmt.Sprintf(`<html><body>%s current price %s just fell below stop price %s</body></html>`, symbol, own.CurrPrice.FloatString(2), own.TStopPrice.FloatString(2))
+					body := fmt.Sprintf(`<html><body>%s current price %s fell below t-stop price %s</body></html>`, symbol, own.CurrPrice.FloatString(2), own.TStopPrice.FloatString(2))
 
 					// Deliver email:
 					if err = mailutil.SendHtmlMessage(from, to, subject, body); err != nil {
