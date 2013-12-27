@@ -180,6 +180,14 @@ func TradeDate(str string) time.Time {
 	return t
 }
 
+func TradeSqliteDateTime(str string) time.Time {
+	t, err := time.ParseInLocation(sqliteFmt, str, LocNY)
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
 // Check if the date is on a weekend:
 func IsWeekend(date time.Time) bool {
 	return date.Weekday() == 0 || date.Weekday() == 6

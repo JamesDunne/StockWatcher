@@ -156,18 +156,15 @@ func TestRecordTrends(t *testing.T) {
 	}
 }
 
-func TestRecordCurrentHourlyPrice(t *testing.T) {
-	var recorded bool
-	var currHour time.Time
-
-	recorded, currHour = api.RecordCurrentHourlyPrice("MSFT")
-	fmt.Printf("MSFT recorded? %v, at %v\n", recorded, currHour)
-	recorded, currHour = api.RecordCurrentHourlyPrice("AAPL")
-	fmt.Printf("AAPL recorded? %v, at %v\n", recorded, currHour)
+func TestGetCurrentHourlyPrices(t *testing.T) {
+	for i := 1; i <= 10; i++ {
+		prices := api.GetCurrentHourlyPrices("MSFT", "AAPL")
+		fmt.Printf("prices [%d]: %+v\n", i, prices)
+	}
 }
 
 func TestGetOwnedDetailsForUser(t *testing.T) {
-	stocks, err := api.GetOwnedDetailsForUser(1, api.CurrentHour())
+	stocks, err := api.GetOwnedDetailsForUser(1)
 	if err != nil {
 		t.Fatal(err)
 		return

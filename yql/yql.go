@@ -192,15 +192,18 @@ func (l *yearQueryResultList) Swap(i, j int) {
 	l.items[i], l.items[j] = l.items[j], l.items[i]
 }
 
-type quote struct {
-	Symbol             string
-	LastTradePriceOnly string
+type Quote struct {
+	Symbol string
+	Price  *big.Rat
 }
 
 // Gets the current trading price for a symbol.
-func GetCurrent(symbol string) (price *big.Rat, err error) {
-	quot := make([]quote, 0, 1)
-	query := fmt.Sprintf(`select LastTradePriceOnly from yahoo.finance.quote where symbol = "%s"`, symbol)
+func GetQuote(symbol string) (quote *Quote, err error) {
+	quot := make([]struct {
+		Symbol             string
+		LastTradePriceOnly string
+	}, 0, 1)
+	query := fmt.Sprintf(`select Symbol, LastTradePriceOnly from yahoo.finance.quote where symbol = "%s"`, symbol)
 	err = Get(&quot, query)
 	if err != nil {
 		return
@@ -211,9 +214,57 @@ func GetCurrent(symbol string) (price *big.Rat, err error) {
 		return nil, nil
 	}
 
-	price = new(big.Rat)
-	price.SetString(quot[0].LastTradePriceOnly)
-	return price, nil
+	quote = &Quote{
+		Symbol: quot[0].Symbol,
+		Price:  new(big.Rat),
+	}
+	quote.Price.SetString(quot[0].LastTradePriceOnly)
+	return quote, nil
+}
+
+// Gets the current trading prices for a set of symbols.
+func GetQuotes(symbols ...string) (quotes []Quote, err error) {
+	if len(symbols) == 0 {
+		return []Quote{}, nil
+	}
+
+	quot := make([]struct {
+		Symbol             string
+		LastTradePriceOnly string
+	}, 0, len(symbols))
+
+	// Build query:
+	query := `select Symbol, LastTradePriceOnly from yahoo.finance.quote where symbol in (`
+	for i, symbol := range symbols {
+		if i > 0 {
+			query += `,`
+		}
+		query += fmt.Sprintf(`"%s"`, symbol)
+	}
+	query += `)`
+
+	// Execute query:
+	err = Get(&quot, query)
+	if err != nil {
+		return
+	}
+
+	if len(quot) == 0 {
+		return []Quote{}, nil
+	}
+
+	// Project into results:
+	quotes = make([]Quote, 0, len(quot))
+	for _, q := range quot {
+		quote := Quote{
+			Symbol: q.Symbol,
+			Price:  new(big.Rat),
+		}
+		quote.Price.SetString(q.LastTradePriceOnly)
+		quotes = append(quotes, quote)
+	}
+
+	return quotes, nil
 }
 
 // Gets all historical data for a symbol between startDate and endDate.

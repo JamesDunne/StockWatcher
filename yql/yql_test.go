@@ -3,7 +3,7 @@ package yql
 import (
 	"fmt"
 	"testing"
-	"time"
+	//	"time"
 )
 
 func TestYqlExtractResponseArray(t *testing.T) {
@@ -36,27 +36,57 @@ func TestYqlExtractResponseObject(t *testing.T) {
 	fmt.Println(hist)
 }
 
-func TestGetCurrent(t *testing.T) {
-	price, err := GetCurrent("MSFT")
+func TestGetQuote(t *testing.T) {
+	quote, err := GetQuote("MSFT")
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
-	fmt.Println(price.FloatString(2))
+	fmt.Printf("quote: %+v\n", quote)
 }
 
-func TestGetHistory(t *testing.T) {
-	startDate, err := time.Parse(dateFmt, "2011-11-26")
-	endDate, err := time.Parse(dateFmt, "2013-12-25")
-	res, err := GetHistory("MSFT", startDate, endDate)
+func TestGetQuotesEmpty(t *testing.T) {
+	quotes, err := GetQuotes()
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
-	//_ = res
-	for _, r := range res {
-		fmt.Println(r.Date)
-	}
+	fmt.Printf("quotes: %+v\n", quotes)
 }
+
+func TestGetQuotesSingle(t *testing.T) {
+	quotes, err := GetQuotes("MSFT")
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	fmt.Printf("quotes: %+v\n", quotes)
+}
+
+func TestGetQuotesMulti(t *testing.T) {
+	quotes, err := GetQuotes("MSFT", "AAPL")
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	fmt.Printf("quotes: %+v\n", quotes)
+}
+
+//func TestGetHistory(t *testing.T) {
+//	startDate, err := time.Parse(dateFmt, "2011-11-26")
+//	endDate, err := time.Parse(dateFmt, "2013-12-25")
+//	res, err := GetHistory("MSFT", startDate, endDate)
+//	if err != nil {
+//		t.Fatal(err)
+//		return
+//	}
+
+//	//_ = res
+//	for _, r := range res {
+//		fmt.Println(r.Date)
+//	}
+//}

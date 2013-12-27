@@ -376,47 +376,65 @@ from (
 }
 
 // Checks if the current hourly price has been fetched from Yahoo or not and fetches it into the StockHourly table if needed.
-func (api *API) RecordCurrentHourlyPrice(symbol string) (recorded bool, currHour time.Time) {
-	recorded = false
+func (api *API) GetCurrentHourlyPrices(symbols ...string) (prices map[string]*big.Rat) {
+	currHour := api.CurrentHour()
 
-	lastTimeStr, err := api.getScalar(`select max(datetime(DateTime)) from StockHourly where Symbol = ?1`, symbol)
-	if err != nil {
-		panic(err)
+	toFetch := make([]string, 0, len(symbols))
+	prices = make(map[string]*big.Rat)
+	for _, symbol := range symbols {
+		lastTimeStr, err := api.getScalar(`select max(datetime(DateTime)) from StockHourly where Symbol = ?1`, symbol)
+		if err != nil {
+			panic(err)
+		}
+
+		// Determine if we need to fetch from Yahoo or not:
+		needFetch := false
+		if lastTimeStr == nil {
+			needFetch = true
+		} else {
+			lastHour := TradeSqliteDateTime(lastTimeStr.(string)).Truncate(time.Hour)
+			if lastHour.Before(currHour) {
+				needFetch = true
+			}
+		}
+
+		// TODO(jsd): could break this out to separate single query with IN clause
+		if !needFetch {
+			currPriceStr, err := api.getScalar(`select Current from StockHourly where Symbol = ?1 and DateTime = ?2`, symbol, currHour.Format(time.RFC3339))
+			if err != nil {
+				panic(err)
+			}
+			prices[symbol] = ToRat(currPriceStr.(string))
+			continue
+		}
+
+		// Add it to the list of symbols to be fetched from Yahoo:
+		toFetch = append(toFetch, symbol)
 	}
 
-	// Determine if we need to fetch from Yahoo or not:
-	currHour = api.CurrentHour()
-	needFetch := false
-	if lastTimeStr == nil {
-		needFetch = true
-	} else {
-		lastHour := TradeDateTime(lastTimeStr.(string)).Truncate(time.Hour)
-		if lastHour.Before(currHour) {
-			needFetch = true
+	// Get current prices from Yahoo:
+	if len(toFetch) > 0 {
+		quotes, err := yql.GetQuotes(toFetch...)
+		if err != nil {
+			panic(err)
+		}
+
+		for _, quote := range quotes {
+			// Record the current hourly price:
+			_, err = api.db.Exec(`replace into StockHourly (Symbol, DateTime, Current) values (?1, ?2, ?3)`,
+				quote.Symbol,
+				currHour.Format(time.RFC3339),
+				quote.Price.FloatString(2),
+			)
+			if err != nil {
+				panic(err)
+			}
+
+			// Fill in the price map:
+			prices[quote.Symbol] = quote.Price
 		}
 	}
 
-	if !needFetch {
-		return
-	}
-
-	// Get current price from Yahoo:
-	currPrice, err := yql.GetCurrent(symbol)
-	if err != nil {
-		panic(err)
-	}
-
-	// Record the current hourly price:
-	_, err = api.db.Exec(`replace into StockHourly (Symbol, DateTime, Current) values (?1, ?2, ?3)`,
-		symbol,
-		currHour.Format(time.RFC3339),
-		currPrice.FloatString(2),
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	recorded = true
 	return
 }
 
