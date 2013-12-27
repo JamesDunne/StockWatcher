@@ -2,6 +2,7 @@ package stocksAPI
 
 // general stuff:
 import (
+	//"fmt"
 	"math/big"
 	"time"
 )
@@ -277,6 +278,18 @@ select distinct Symbol from (
 	return
 }
 
+func (api *API) GetLastTradeDay(symbol string) int64 {
+	ld, err := api.getScalars(`select h.Date, h.TradeDayIndex from StockHistory h where (h.Symbol = ?1) and (h.TradeDayIndex = (select max(TradeDayIndex) from StockHistory where Symbol = h.Symbol))`, symbol)
+	if err != nil {
+		panic(err)
+	}
+	if ld[0] != nil {
+		//lastDate = TruncDate(TradeDateTime(ld[0].(string)))
+		return ld[1].(int64)
+	}
+	return int64(0)
+}
+
 // Fetches historical data from Yahoo Finance into the database
 func (api *API) RecordHistory(symbol string) (err error) {
 	// Fetch earliest date of interest for symbol:
@@ -360,12 +373,12 @@ func (api *API) RecordHistory(symbol string) (err error) {
 }
 
 // Calculates per-day trends and records them to the database.
-func (api *API) RecordTrends(symbol string) (err error) {
+func (api *API) RecordStats(symbol string) (err error) {
 	_, err = api.db.Exec(`
-replace into StockHistoryTrend (Symbol, Date, Avg200Day, Avg50Day, SMAPercent)
-select Symbol, Date, Avg200, Avg50, ((Avg50 / Avg200) - 1) * 100 as SMAPercent
+replace into StockStats (Symbol, Date, TradeDayIndex, Avg200Day, Avg50Day, SMAPercent)
+select Symbol, Date, TradeDayIndex, Avg200, Avg50, ((Avg50 / Avg200) - 1) * 100 as SMAPercent
 from (
-	select h.Symbol, h.Date
+	select h.Symbol, h.Date, h.TradeDayIndex
 	     , (select avg(cast(Closing as real)) from StockHistory h0 where (h0.Symbol = h.Symbol) and (h0.TradeDayIndex >= (h.TradeDayIndex - 200))) as Avg200
 	     , (select avg(cast(Closing as real)) from StockHistory h0 where (h0.Symbol = h.Symbol) and (h0.TradeDayIndex >= (h.TradeDayIndex - 50))) as Avg50
 	from StockHistory h
@@ -449,9 +462,11 @@ type OwnedStockDetails struct {
 	Shares      int64
 	StopPercent *big.Rat
 
-	CurrPrice       *big.Rat
-	TStopPrice      *big.Rat
+	CurrHour  time.Time
+	CurrPrice *big.Rat
+
 	LastCloseDate   time.Time
+	TStopPrice      *big.Rat
 	Avg200Day       float64
 	Avg50Day        float64
 	SMAPercent      float64
@@ -459,7 +474,7 @@ type OwnedStockDetails struct {
 	GainLossDollar  *big.Rat
 }
 
-// NOTE: Requires StockHistory, StockHistoryTrend, and StockHourly to be populated.
+// NOTE: Requires StockHistory, StockStats, and StockHourly to be populated.
 func (api *API) GetOwnedDetailsForUser(userID UserID) (details []OwnedStockDetails, err error) {
 	// Anonymous structs are cool.
 	rows := make([]struct {
@@ -472,7 +487,8 @@ func (api *API) GetOwnedDetailsForUser(userID UserID) (details []OwnedStockDetai
 		Shares      int64  `db:"Shares"`
 		StopPercent string `db:"StopPercent"`
 
-		Current string `db:"Current"`
+		CurrPrice string `db:"CurrPrice"`
+		CurrHour  string `db:"CurrHour"`
 
 		Date         string  `db:"Date"`
 		Avg200Day    float64 `db:"Avg200Day"`
@@ -484,20 +500,26 @@ func (api *API) GetOwnedDetailsForUser(userID UserID) (details []OwnedStockDetai
 
 	err = api.db.Select(&rows, `
 select ID, UserID, Symbol, BuyDate, IsEnabled, BuyPrice, Shares, StopPercent
-     , Current
-     , Date, Avg200Day, Avg50Day, SMAPercent
-     , (select max(cast(h.Closing as real)) from StockHistory h where h.Symbol = o.Symbol) as HighestClose
-     , (select min(cast(h.Closing as real)) from StockHistory h where h.Symbol = o.Symbol) as LowestClose
+     , CurrPrice, CurrHour
+     , Date, Avg200Day, Avg50Day, SMAPercent, HighestClose, LowestClose
 from (
 	select o.rowid as ID, o.UserID, o.Symbol, o.BuyDate, o.IsEnabled, o.BuyPrice, o.Shares, o.StopPercent
-	     , h.Current
+	     , h.Current as CurrPrice, h.DateTime as CurrHour
 	     , t.Date, t.Avg200Day, t.Avg50Day, t.SMAPercent
+	     , e.HighestClose, e.LowestClose
 	from StockOwned o
-	join StockHistoryTrend t on t.Symbol = o.Symbol
+	join StockStats t on t.Symbol = h.Symbol and t.TradeDayIndex = (select max(TradeDayIndex) from StockHistory where Symbol = h.Symbol)
 	join StockHourly h on h.Symbol = o.Symbol and h.DateTime = ?2
+	join (
+		select o.rowid, h.Symbol, min(cast(h.Closing as real)) as LowestClose, max(cast(h.Closing as real)) as HighestClose
+		from StockOwned o
+		join StockHistory h on h.Symbol = o.Symbol
+		where datetime(h.Date) >= datetime(o.BuyDate)
+		group by o.rowid, h.Symbol
+	) e on e.rowid = o.rowid
 	where o.UserID = ?1
-	order by t.Date desc limit 1
-) o`, int64(userID), api.CurrentHour().Format(time.RFC3339))
+) o
+order by o.ID asc`, int64(userID), api.CurrentHour().Format(time.RFC3339))
 	if err != nil {
 		return
 	}
@@ -505,7 +527,7 @@ from (
 	// Copy raw DB rows into OwnedStockDetails records:
 	details = make([]OwnedStockDetails, 0, len(rows))
 	for _, r := range rows {
-		currPrice := ToRat(r.Current)
+		currPrice := ToRat(r.CurrPrice)
 		d := OwnedStockDetails{
 			ID:            r.ID,
 			UserID:        r.UserID,
@@ -517,12 +539,14 @@ from (
 			StopPercent:   ToRat(r.StopPercent),
 			LastCloseDate: TradeDateTime(r.Date),
 
+			CurrPrice: currPrice,
+			CurrHour:  TradeDateTime(r.CurrHour),
+
 			Avg200Day:  r.Avg200Day,
 			Avg50Day:   r.Avg50Day,
 			SMAPercent: r.SMAPercent,
 		}
 
-		d.CurrPrice = currPrice
 		if d.Shares > 0 {
 			d.TStopPrice = new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Sub(ToRat("100"), d.StopPercent), ToRat("0.01"))), FloatToRat(r.HighestClose))
 		} else {
@@ -532,12 +556,24 @@ from (
 
 		// gain$ = (currPrice - buyPrice) * shares
 		d.GainLossDollar = new(big.Rat).Mul(new(big.Rat).Sub(currPrice, d.BuyPrice), IntToRat(d.Shares))
+
 		// gain% = ((currPrice - buyPrice) / buyPrice) * 100
 		buyPriceFlt := RatToFloat(d.BuyPrice)
 		d.GainLossPercent = ((RatToFloat(currPrice) - buyPriceFlt) * 100.0 / buyPriceFlt)
 
+		// Add to list:
 		details = append(details, d)
 	}
 
+	return
+}
+
+func (api *API) EnableOwned(ownedID int64) (err error) {
+	_, err = api.db.Exec(`update StockOwned set IsEnabled = 1 where rowid = ?1`, ownedID)
+	return
+}
+
+func (api *API) DisableOwned(ownedID int64) (err error) {
+	_, err = api.db.Exec(`update StockOwned set IsEnabled = 0 where rowid = ?1`, ownedID)
 	return
 }

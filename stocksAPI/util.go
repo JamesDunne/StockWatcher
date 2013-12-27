@@ -129,6 +129,39 @@ func minNullTime(a, b *time.Time) *time.Time {
 	}
 }
 
+func commaDelimDblQuote(strs ...string) string {
+	str := ""
+	for i, s := range strs {
+		if i > 0 {
+			str += ","
+		}
+		str += fmt.Sprintf(`"%s"`, s)
+	}
+	return str
+}
+
+func commaDelimSngQuote(strs ...string) string {
+	str := ""
+	for i, s := range strs {
+		if i > 0 {
+			str += ","
+		}
+		str += fmt.Sprintf(`'%s'`, s)
+	}
+	return str
+}
+
+func parametersList(start, count int) string {
+	str := ""
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			str += ","
+		}
+		str += fmt.Sprintf("?%d", (i + start))
+	}
+	return str
+}
+
 // Converts a string into a `*big.Rat` which is an arbitrary precision rational number stored in decimal format
 func ToRat(v string) *big.Rat {
 	rat := new(big.Rat)

@@ -41,19 +41,20 @@ create index if not exists IX_StockHistory_Closing on StockHistory (
 	Date ASC,
 	Closing ASC
 )`,
-		// StockHistoryTrend to store trend information per stock per date:
+		// StockStats to store trend information per stock per date:
 		`
-create table if not exists StockHistoryTrend (
+create table if not exists StockStats (
 	Symbol TEXT NOT NULL,
 	Date TEXT NOT NULL,
+	TradeDayIndex INTEGER NOT NULL,
 	Avg200Day TEXT NOT NULL,
 	Avg50Day TEXT NOT NULL,
 	SMAPercent TEXT NOT NULL,	-- simple moving average
-	CONSTRAINT PK_StockHistoryTrend PRIMARY KEY (Symbol, Date)
+	CONSTRAINT PK_StockStats PRIMARY KEY (Symbol, Date)
 )`,
 		// Index for trend data:
 		`
-create index if not exists IX_StockHistoryTrend on StockHistoryTrend (
+create index if not exists IX_StockStats on StockStats (
 	Symbol ASC,
 	Date ASC,
 	Avg200Day,
@@ -105,8 +106,11 @@ create table if not exists StockOwned (
 	BuyPrice TEXT NOT NULL,
 	Shares TEXT NOT NULL,
 	StopPercent TEXT NOT NULL,
-	LastNotificationDate TEXT,
-	CONSTRAINT PK_StockOwned PRIMARY KEY (UserID, Symbol, BuyDate)
+	LastNotificationDate TEXT
+)`, `
+create index if not exists IX_StockOwned on StockOwned (
+	UserID ASC,
+	Symbol ASC
 )`,
 		// Watched stocks:
 		`

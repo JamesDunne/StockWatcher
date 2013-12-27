@@ -77,7 +77,7 @@ func TestGetUserBySecondaryEmail(t *testing.T) {
 }
 
 func TestAddOwnedStock(t *testing.T) {
-	err := api.AddOwnedStock(1, "MSFT", "2012-09-01", ToRat("40.00"), +10, ToRat("20.00"))
+	err := api.AddOwnedStock(1, "MSFT", "2012-09-01", ToRat("40.00"), -10, ToRat("20.00"))
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -140,6 +140,7 @@ func TestGetAllTrackedSymbols(t *testing.T) {
 
 func TestRecordHistory(t *testing.T) {
 	for _, symbol := range symbols {
+		fmt.Printf("recording history for %s...\n", symbol)
 		err := api.RecordHistory(symbol)
 		if err != nil {
 			t.Fatal(err)
@@ -147,9 +148,10 @@ func TestRecordHistory(t *testing.T) {
 	}
 }
 
-func TestRecordTrends(t *testing.T) {
+func TestRecordStats(t *testing.T) {
 	for _, symbol := range symbols {
-		err := api.RecordTrends(symbol)
+		fmt.Printf("recording stats for %s...\n", symbol)
+		err := api.RecordStats(symbol)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -157,6 +159,7 @@ func TestRecordTrends(t *testing.T) {
 }
 
 func TestGetCurrentHourlyPrices(t *testing.T) {
+	// Fetch multiple times in a row to test fetch from DB vs. fetch from Yahoo (and store to DB):
 	for i := 1; i <= 10; i++ {
 		prices := api.GetCurrentHourlyPrices("MSFT", "AAPL")
 		fmt.Printf("prices [%d]: %+v\n", i, prices)
@@ -170,5 +173,5 @@ func TestGetOwnedDetailsForUser(t *testing.T) {
 		return
 	}
 
-	fmt.Printf("detail stocks:   %+v\n", stocks)
+	fmt.Printf("detail stocks: %+v\n", stocks)
 }
