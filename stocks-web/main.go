@@ -85,6 +85,9 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 	case "/dash":
 		// Dashboard UI:
 		http.ServeFile(w, r, path.Join(fsRoot, "dash.html"))
+
+	default:
+		http.NotFound(w, r)
 	}
 }
 
