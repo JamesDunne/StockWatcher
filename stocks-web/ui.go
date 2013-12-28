@@ -8,7 +8,7 @@ import (
 	"net/http"
 	//"net/url"
 	//"path"
-	//"time"
+	"time"
 )
 
 // sqlite related imports:
@@ -41,10 +41,7 @@ var uiTmpl *template.Template
 
 // Handles /ui/* requests to present HTML UI to the user:
 func uiHandler(w http.ResponseWriter, r *http.Request) {
-	// Get authenticated user data:
-	webuser := getUserData(r)
-
-	// Determine if user is registered:
+	// Get API ready:
 	api, err := stocksAPI.NewAPI(dbPath)
 	if err != nil {
 		log.Println(err)
@@ -53,15 +50,19 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer api.Close()
 
-	// Handle panic()s:
+	// Handle panic()s as '500' responses:
 	defer func() {
 		if err := recover(); err != nil {
 			log.Println(err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
 		}
+
+		// Normal execution.
 	}()
 
 	// Find user:
+	webuser := getUserData(r)
 	apiuser, err := api.GetUserByEmail(webuser.Email)
 	if apiuser == nil || err != nil {
 		if r.URL.Path != "/register" {
@@ -73,14 +74,34 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 	// Handle request:
 	switch r.URL.Path {
 	case "/register":
-		// Fetch data to be used by the template:
-		model := struct {
-			User *stocksAPI.User
-		}{
-			User: apiuser,
-		}
+		if r.Method == "GET" {
+			// Data to be used by the template:
+			model := struct {
+				WebUser *UserCookieData
+				User    *stocksAPI.User
+			}{
+				WebUser: webuser,
+				User:    apiuser,
+			}
 
-		uiTmpl.ExecuteTemplate(w, "register", model)
+			uiTmpl.ExecuteTemplate(w, "register", model)
+		} else {
+			// Assume POST.
+
+			// Add user:
+			apiuser = &stocksAPI.User{
+				PrimaryEmail:        webuser.Email,
+				Name:                webuser.FullName,
+				NotificationTimeout: time.Hour * time.Duration(24),
+			}
+
+			err = api.AddUser(apiuser)
+			if err != nil {
+				panic(err)
+			}
+
+			http.Redirect(w, r, "/ui/dash", http.StatusFound)
+		}
 		return
 
 	case "/dash":

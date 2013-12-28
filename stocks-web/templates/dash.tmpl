@@ -1,6 +1,9 @@
 {{define "dash"}}{{template "_head"}}
 	<h1>Welcome, {{.User.Name}} &lt;{{.User.PrimaryEmail}}&gt;</h1>
 	<div>
+		Click <a href="/auth/logout">here</a> to log out.
+	</div>
+	<div>
 		<h2>Dashboard</h2>
 		<div>
 		{{if .Owned}}
@@ -23,7 +26,7 @@
 				<tbody>
 					{{range .Owned}}
 					<tr>
-						<td class="entered left"><a href="http://stockcharts.com/c-sc/sc?s={{.Symbol}}&p=D&b=5&g=0&i=t12529527186&r=1386119742619" target="_blank">{{.Symbol}}</a></td>
+						<td class="entered left"><a href="http://finviz.com/chart.ashx?t={{.Symbol}}&ty=c&ta=1&p=d&s=l" target="_blank">{{.Symbol}}</a></td>
 						<td class="entered right">{{.BuyDate.Format "2006-01-02"}}</td>
 						<td class="entered right">{{.BuyPrice.FloatString 2}}</td>
 						<td class="entered right">{{.Shares}}</td>

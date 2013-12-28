@@ -1,11 +1,11 @@
-{{define "register"}}<!DOCTYPE html>
-
-<html>
-<head>
-</head>
-<body>
-	Welcome, {{.User.Name}} &lt;{{.User.PrimaryEmail}}&gt;.<br>
-	You are authenticated but you need to register as a user.
-</body>
-</html>
-{{end}}
+{{define "register"}}{{template "_head"}}
+	<h1>Welcome, {{.WebUser.FullName}} &lt;{{.WebUser.Email}}&gt;</h1>
+	<div>
+		Click <a href="/auth/logout">here</a> to log out.
+	</div>
+	<div>
+		<form id="registerForm" action="/ui/register" method="POST">
+			Click <a href="#" onclick="document.forms[0].submit();">here</a> to register.
+		</form>
+	</div>
+{{template "_tail"}}{{end}}

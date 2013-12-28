@@ -23,3 +23,10 @@ table.data th.entered {
 table.data th.calced {
 	text-decoration: underline;
 }
+
+table.data th {
+	background-color: #ddd;
+}
+table.data tr:nth-child(2n) {
+	background-color: #eee;
+}

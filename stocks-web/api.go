@@ -113,78 +113,90 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle API urls:
-	switch r.URL.Path {
-	case "/user/who":
-		rsp = apiuser
+	if r.Method == "GET" {
+		// GET
 
-	case "/user/register":
-		// Register new user with primary email.
+		switch r.URL.Path {
+		case "/user/who":
+			rsp = apiuser
 
-		if apiuser == nil {
-			// Add user:
-			apiuser = &stocksAPI.User{
-				PrimaryEmail:        webuser.Email,
-				Name:                webuser.FullName,
-				NotificationTimeout: time.Minute,
-			}
-			err = api.AddUser(apiuser)
+		case "/owned/list":
+			// Get list of owned stocks w/ details.
+			owned, err := api.GetOwnedStocksByUser(apiuser.UserID)
 			if err != nil {
-				rsperr = err
+				log.Println(err)
+				http.Error(w, "Fail GetOwnedStocksByUser", http.StatusInternalServerError)
 				return
 			}
+			rsp = owned
+
+		case "/watched/list":
+			// Get list of watched stocks w/ details.
+			watched, err := api.GetWatchedStocksByUser(apiuser.UserID)
+			if err != nil {
+				log.Println(err)
+				http.Error(w, "Fail GetWatchedStocksByUser", http.StatusInternalServerError)
+				return
+			}
+			rsp = watched
+
+		default:
+			rspcode = 404
+			rsperr = fmt.Errorf("Invalid API url")
 		}
-		rsp = apiuser
+	} else {
+		// POST
 
-	case "/user/join":
-		// Join to existing user with secondary email.
-		rsperr = fmt.Errorf("TODO")
+		switch r.URL.Path {
+		case "/user/register":
+			// Register new user with primary email.
 
-	case "/owned/list":
-		// Get list of owned stocks w/ details.
-		owned, err := api.GetOwnedStocksByUser(apiuser.UserID)
-		if err != nil {
-			log.Println(err)
-			http.Error(w, "Fail GetOwnedStocksByUser", http.StatusInternalServerError)
-			return
+			if apiuser == nil {
+				// Add user:
+				apiuser = &stocksAPI.User{
+					PrimaryEmail:        webuser.Email,
+					Name:                webuser.FullName,
+					NotificationTimeout: time.Hour * time.Duration(24),
+				}
+				err = api.AddUser(apiuser)
+				if err != nil {
+					rsperr = err
+					return
+				}
+			}
+			rsp = apiuser
+
+		case "/user/join":
+			// Join to existing user with secondary email.
+			rsperr = fmt.Errorf("TODO")
+
+		case "/owned/add":
+			// Add owned stock.
+			rsperr = fmt.Errorf("TODO")
+
+		case "/owned/disable":
+			// Disable notifications.
+			rsperr = fmt.Errorf("TODO")
+
+		case "/owned/enable":
+			// Enable notifications.
+			rsperr = fmt.Errorf("TODO")
+
+		case "/watched/add":
+			// Add watched stock.
+			rsperr = fmt.Errorf("TODO")
+
+		case "/watched/disable":
+			// Disable notifications.
+			rsperr = fmt.Errorf("TODO")
+
+		case "/watched/enable":
+			// Enable notifications.
+			rsperr = fmt.Errorf("TODO")
+
+		default:
+			rspcode = 404
+			rsperr = fmt.Errorf("Invalid API url")
 		}
-		rsp = owned
-
-	case "/owned/add":
-		// Add owned stock.
-		rsperr = fmt.Errorf("TODO")
-
-	case "/owned/disable":
-		// Disable notifications.
-		rsperr = fmt.Errorf("TODO")
-
-	case "/owned/enable":
-		// Enable notifications.
-		rsperr = fmt.Errorf("TODO")
-
-	case "/watched/list":
-		// Get list of watched stocks w/ details.
-		watched, err := api.GetWatchedStocksByUser(apiuser.UserID)
-		if err != nil {
-			log.Println(err)
-			http.Error(w, "Fail GetWatchedStocksByUser", http.StatusInternalServerError)
-			return
-		}
-		rsp = watched
-
-	case "/watched/add":
-		// Add watched stock.
-		rsperr = fmt.Errorf("TODO")
-
-	case "/watched/disable":
-		// Disable notifications.
-		rsperr = fmt.Errorf("TODO")
-
-	case "/watched/enable":
-		// Enable notifications.
-		rsperr = fmt.Errorf("TODO")
-
-	default:
-		rspcode = 404
-		rsperr = fmt.Errorf("Invalid API url")
 	}
 }
