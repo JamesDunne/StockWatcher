@@ -25,6 +25,16 @@ import (
 	"github.com/JamesDunne/StockWatcher/stocksAPI"
 )
 
+// utilities:
+
+func getOwned(api *stocksAPI.API, userID stocksAPI.UserID) []stocksAPI.OwnedDetails {
+	owned, err := api.GetOwnedDetailsForUser(userID)
+	if err != nil {
+		panic(err)
+	}
+	return owned
+}
+
 // ----------------------- Secured section:
 
 var uiTmpl *template.Template
@@ -43,6 +53,14 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer api.Close()
 
+	// Handle panic()s:
+	defer func() {
+		if err := recover(); err != nil {
+			log.Println(err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
+	}()
+
 	// Find user:
 	apiuser, err := api.GetUserByEmail(webuser.Email)
 	if apiuser == nil || err != nil {
@@ -53,19 +71,31 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Define our model:
-	model := struct {
-		User *stocksAPI.User
-	}{
-		User: apiuser,
-	}
 
 	switch r.URL.Path {
 	case "/register":
+		// Fetch data to be used by the template:
+		model := struct {
+			User *stocksAPI.User
+		}{
+			User: apiuser,
+		}
 		uiTmpl.ExecuteTemplate(w, "register", model)
 		return
 
 	case "/dash":
-		uiTmpl.ExecuteTemplate(w, "dash", model)
+		// Fetch data to be used by the template:
+		model := struct {
+			User  *stocksAPI.User
+			Owned []stocksAPI.OwnedDetails
+		}{
+			User:  apiuser,
+			Owned: getOwned(api, apiuser.UserID),
+		}
+		err := uiTmpl.ExecuteTemplate(w, "dash", model)
+		if err != nil {
+			panic(err)
+		}
 		return
 
 	default:
