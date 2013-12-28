@@ -7,14 +7,19 @@
 	<div>
 		Click <a href="/auth/logout">here</a> to log out.
 	</div>
+	<h2>Dashboard - Add Owned Stock</h2>
 	<div>
 		<form action="/ui/owned/add" method="POST">
-			<label for="symbol">Symbol:</label><input type="text" name="symbol" value="MSFT"><br>
-			<label for="buyDate">Buy Date:</label><input type="text" name="buyDate" value="2013-09-04"><br>
-			<label for="buyPrice">Buy Price:</label><input type="text" name="buyPrice" value="30.00"><br>
-			<label for="shares">Shares:</label><input type="text" name="shares" value="20"><br>
-			<label for="stopPercent">T-Stop Percent:</label><input type="text" name="stopPercent" value="25.00"><br>
-			<input type="submit" value="submit">
+			<table>
+				<tbody>
+					<tr><td><label for="symbol">Symbol:</label></td><td><input type="text" name="symbol" value="MSFT"></td></tr>
+					<tr><td><label for="buyDate">Buy Date:</label></td><td><input type="text" name="buyDate" value="2013-09-04"></td></tr>
+					<tr><td><label for="buyPrice">Buy Price:</label></td><td><input type="text" name="buyPrice" value="30.00"></td></tr>
+					<tr><td><label for="shares">Shares:</label></td><td><input type="text" name="shares" value="20"></td></tr>
+					<tr><td><label for="stopPercent">T-Stop %:</label></td><td><input type="text" name="stopPercent" value="25.00"></td></tr>
+					<tr><td colspan="2"><input type="submit" value="submit"></td></tr>
+				</tbody>
+			</table>
 		</form>
 	</div>
 {{template "_tail"}}{{end}}

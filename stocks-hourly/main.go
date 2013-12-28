@@ -43,6 +43,7 @@ func main() {
 	// Define our commandline flags:
 	dbPathArg := flag.String("db", "../stocks-web/stocks.db", "Path to stocks.db database")
 	mailServerArg := flag.String("mail-server", "localhost:25", "Address of SMTP server to use for sending email")
+	testArg := flag.Bool("test", false, "Add test data")
 
 	// Parse the flags and set values:
 	flag.Parse()
@@ -58,7 +59,7 @@ func main() {
 	defer api.Close()
 
 	// Testing data:
-	{
+	if *testArg {
 		testUser := &stocksAPI.User{
 			PrimaryEmail:        "test@example.org",
 			Name:                "Test User",
@@ -68,12 +69,12 @@ func main() {
 
 		if err == nil {
 			// Real data from market:
-			api.AddOwnedStock(testUser.UserID, "MSFT", "2013-09-03", stocksAPI.ToRat("31.88"), 10, stocksAPI.ToRat("2.50"))
-			api.AddOwnedStock(testUser.UserID, "AAPL", "2013-09-03", stocksAPI.ToRat("488.58"), 10, stocksAPI.ToRat("2.50"))
-			api.AddWatchedStock(testUser.UserID, "YHOO", "2013-09-03", stocksAPI.ToRat("31.88"), stocksAPI.ToRat("2.50"))
+			api.AddOwned(testUser.UserID, "MSFT", "2013-09-03", stocksAPI.ToRat("31.88"), 10, stocksAPI.ToRat("2.50"))
+			api.AddOwned(testUser.UserID, "AAPL", "2013-09-03", stocksAPI.ToRat("488.58"), 10, stocksAPI.ToRat("2.50"))
+			api.AddWatched(testUser.UserID, "YHOO", "2013-09-03", stocksAPI.ToRat("31.88"), stocksAPI.ToRat("2.50"))
 
-			api.AddOwnedStock(testUser.UserID, "MSFT", "2013-09-03", stocksAPI.ToRat("31.88"), -5, stocksAPI.ToRat("2.50"))
-			api.AddOwnedStock(testUser.UserID, "AAPL", "2013-09-03", stocksAPI.ToRat("488.58"), -5, stocksAPI.ToRat("2.50"))
+			api.AddOwned(testUser.UserID, "MSFT", "2013-09-03", stocksAPI.ToRat("31.88"), -5, stocksAPI.ToRat("2.50"))
+			api.AddOwned(testUser.UserID, "AAPL", "2013-09-03", stocksAPI.ToRat("488.58"), -5, stocksAPI.ToRat("2.50"))
 		}
 	}
 
@@ -125,6 +126,10 @@ func main() {
 		}
 
 		for _, own := range owned {
+			if !own.IsEnabled {
+				continue
+			}
+
 			// Get the owner:
 			user, err := api.GetUser(own.UserID)
 			if err != nil {
@@ -186,6 +191,10 @@ func main() {
 		}
 
 		for _, watch := range watched {
+			if !watch.IsEnabled {
+				continue
+			}
+
 			// Get the watcher:
 			user, err := api.GetUser(watch.UserID)
 			if err != nil {

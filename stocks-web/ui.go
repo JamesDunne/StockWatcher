@@ -115,6 +115,8 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 
+		// -------------------------------------------------
+
 	case "/dash":
 		// Fetch data to be used by the template:
 		model := struct {
@@ -132,6 +134,44 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 			panic(err)
 		}
 		return
+
+	case "/fetch":
+		// Fetch latest data:
+
+		// Query stocks:
+		symbols, err := api.GetAllTrackedSymbols()
+		if err != nil {
+			panic(err)
+		}
+
+		// Run through each actively tracked stock and calculate stopping prices, notify next of kin, what have you...
+		log.Printf("%d stocks tracked.\n", len(symbols))
+
+		for _, symbol := range symbols {
+			// Record trading history:
+			log.Printf("%s: recording historical data...\n", symbol)
+			err = api.RecordHistory(symbol)
+			if err != nil {
+				panic(err)
+			}
+
+			// Calculate and record statistics:
+			log.Printf("%s: calculating statistics...\n", symbol)
+			err = api.RecordStats(symbol)
+			if err != nil {
+				panic(err)
+			}
+		}
+
+		// Fetch current prices from Yahoo into the database:
+		log.Printf("Fetching current prices...\n")
+		api.GetCurrentHourlyPrices(symbols...)
+
+		// Redirect to dashboard with updated data:
+		http.Redirect(w, r, "/ui/dash", http.StatusFound)
+		return
+
+		// -------------------------------------------------
 
 	case "/owned/disable":
 		if r.Method == "POST" {
@@ -262,7 +302,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 
-		// ----------------------
+		// -------------------------------------------------
 
 	case "/watched/disable":
 		if r.Method == "POST" {

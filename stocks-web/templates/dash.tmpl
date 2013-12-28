@@ -8,6 +8,10 @@
 	</div>
 	<h2>Dashboard</h2>
 	<div>
+		<a href="/ui/fetch">fetch latest</a>
+	</div>
+	<hr>
+	<div>
 		<h3>Owned</h3>
 		<div>
 		{{if .Owned}}
@@ -54,9 +58,10 @@
 		{{end}}
 		</div>
 		<div>
-			<a href="/ui/owned/add">add stock</a>
+			<a href="/ui/owned/add">add</a>
 		</div>
 	</div>
+	<hr>
 	<div>
 		<h3>Watching</h3>
 		<div>
@@ -98,7 +103,7 @@
 		{{end}}
 		</div>
 		<div>
-			<a href="/ui/watched/add">add stock</a>
+			<a href="/ui/watched/add">add</a>
 		</div>
 	</div>
 {{template "_tail"}}{{end}}
