@@ -149,21 +149,28 @@ func projectOwnedDetails(rows []dbOwnedDetail) (details []OwnedDetails, err erro
 			SMAPercent: r.SMAPercent,
 		}
 
-		if d.Shares > 0 {
+		buyPriceFlt := RatToFloat(d.BuyPrice)
+
+		if d.Shares >= 0 {
+			// Owned:
+
 			// ((100 - stopPercent) * 0.01) * highestClose
 			d.TStopPrice = new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Sub(ToRat("100"), d.TStopPercent), ToRat("0.01"))), FloatToRat(r.HighestClose))
+
+			// gain% = ((currPrice / buyPrice) - 1) * 100
+			d.GainLossPercent = (((RatToFloat(currPrice) / buyPriceFlt) - 1.0) * 100.0)
 		} else {
 			// Shorted:
+
 			// ((100 + stopPercent) * 0.01) * lowestClose
 			d.TStopPrice = new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Add(ToRat("100"), d.TStopPercent), ToRat("0.01"))), FloatToRat(r.LowestClose))
+
+			// gain% = -((currPrice / buyPrice) - 1) * 100
+			d.GainLossPercent = (((RatToFloat(currPrice) / buyPriceFlt) - 1.0) * -100.0)
 		}
 
 		// gain$ = (currPrice - buyPrice) * shares
 		d.GainLossDollar = new(big.Rat).Mul(new(big.Rat).Sub(currPrice, d.BuyPrice), IntToRat(d.Shares))
-
-		// gain% = ((currPrice / buyPrice) - 1) * 100
-		buyPriceFlt := RatToFloat(d.BuyPrice)
-		d.GainLossPercent = (((RatToFloat(currPrice) / buyPriceFlt) - 1.0) * 100.0)
 
 		// Add to list:
 		details = append(details, d)

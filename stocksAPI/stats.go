@@ -47,6 +47,8 @@ func (api *API) RecordHistory(symbol string) (err error) {
 		return nil
 	}
 
+	// TODO: this will fail if a buyDate is introduced earlier than recorded history.
+
 	// Fetch the historical data:
 	hist, err := yql.GetHistory(symbol, lastDate, api.lastTradingDate)
 	if err != nil {

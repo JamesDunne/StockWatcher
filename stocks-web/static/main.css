@@ -8,13 +8,18 @@ body {
 .center { text-align: center; }
 
 table.data {
-	border: 1px solid;
-	border-spacing: 0px;
-	border-collapse: collapse;
+	border: 0px solid;
+	border-spacing: 2px;
+	border-collapse: separate;
 }
-table.data th {
+
+table.data th, table.data td {
+	padding: 2px;
+}
+
+table.data th.entered {
 	border: 1px solid;
 }
-table.data td {
-	border: 1px solid;
+table.data th.calced {
+	text-decoration: underline;
 }

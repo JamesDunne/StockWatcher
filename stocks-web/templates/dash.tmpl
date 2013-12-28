@@ -7,33 +7,33 @@
 			<table class="data">
 				<thead>
 					<tr>
-						<th>Symbol</th>
-						<th>Buy Date</th>
-						<th>Recent Time</th>
-						<th>Recent Price</th>
-						<th>Shares</th>
-						<th>T-Stop %</th>
-						<th>T-Stop Price</th>
-						<th>50/200 SMA %</th>
-						<th>Buy Price</th>
-						<th>Gain/Loss %</th>
-						<th>Gain/Loss $</th>
+						<th class="entered">Symbol</th>
+						<th class="entered">Buy Date</th>
+						<th class="entered">Buy Price</th>
+						<th class="entered">Shares</th>
+						<th class="entered">T-Stop %</th>
+						<th class="calced">T-Stop Price</th>
+						<th class="calced">50/200 SMA %</th>
+						<th class="calced">Recent Time</th>
+						<th class="calced">Recent Price</th>
+						<th class="calced">Gain/Loss %</th>
+						<th class="calced">Gain/Loss $</th>
 					</tr>
 				</thead>
 				<tbody>
 					{{range .Owned}}
 					<tr>
-						<td class="left"><a href="http://stockcharts.com/c-sc/sc?s={{.Symbol}}&p=D&b=5&g=0&i=t12529527186&r=1386119742619" target="_blank">{{.Symbol}}</a></td>
-						<td class="right">{{.BuyDate.Format "2006-01-02"}}</td>
-						<td class="right">{{.CurrHour.Format "2006-01-02 15:04"}}</td>
-						<td class="right">{{.CurrPrice.FloatString 2}}</td>
-						<td class="right">{{.Shares}}</td>
-						<td class="right">{{.TStopPercent.FloatString 2}}</td>
-						<td class="right">{{.TStopPrice.FloatString 2}}</td>
-						<td class="right">{{.SMAPercent | printf "%.2f"}}</td>
-						<td class="right">{{.BuyPrice.FloatString 2}}</td>
-						<td class="right">{{.GainLossPercent | printf "%.2f"}}</td>
-						<td class="right">{{.GainLossDollar.FloatString 2}}</td>
+						<td class="entered left"><a href="http://stockcharts.com/c-sc/sc?s={{.Symbol}}&p=D&b=5&g=0&i=t12529527186&r=1386119742619" target="_blank">{{.Symbol}}</a></td>
+						<td class="entered right">{{.BuyDate.Format "2006-01-02"}}</td>
+						<td class="entered right">{{.BuyPrice.FloatString 2}}</td>
+						<td class="entered right">{{.Shares}}</td>
+						<td class="entered right">{{.TStopPercent.FloatString 2}}</td>
+						<td class="calced right">{{.TStopPrice.FloatString 2}}</td>
+						<td class="calced right">{{.SMAPercent | printf "%.2f"}}</td>
+						<td class="calced right">{{.CurrHour.Format "2006-01-02 15:04"}}</td>
+						<td class="calced right">{{.CurrPrice.FloatString 2}}</td>
+						<td class="calced right">{{.GainLossPercent | printf "%.2f"}}</td>
+						<td class="calced right">{{.GainLossDollar.FloatString 2}}</td>
 					</tr>
 					{{end}}
 				</tbody>
