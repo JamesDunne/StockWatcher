@@ -165,8 +165,8 @@ func projectOwnedDetails(rows []dbOwnedDetail) (details []OwnedDetails, err erro
 			// ((100 + stopPercent) * 0.01) * lowestClose
 			d.TStopPrice = new(big.Rat).Mul((new(big.Rat).Mul(new(big.Rat).Add(ToRat("100"), d.TStopPercent), ToRat("0.01"))), FloatToRat(r.LowestClose))
 
-			// gain% = -((currPrice / buyPrice) - 1) * 100
-			d.GainLossPercent = (((RatToFloat(currPrice) / buyPriceFlt) - 1.0) * -100.0)
+			// gain% = -((buyPrice / currPrice) - 1) * 100
+			d.GainLossPercent = (((buyPriceFlt / RatToFloat(currPrice)) - 1.0) * 100.0)
 		}
 
 		// gain$ = (currPrice - buyPrice) * shares
