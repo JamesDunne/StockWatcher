@@ -14,7 +14,7 @@ import (
 )
 
 // Add a stock to watch for UserID:
-func (api *API) AddWatchedStock(userID UserID, symbol string, startDate string, startPrice *big.Rat, stopPercent *big.Rat) (err error) {
+func (api *API) AddWatched(userID UserID, symbol string, startDate string, startPrice *big.Rat, stopPercent *big.Rat) (err error) {
 	_, err = api.db.Exec(`insert or ignore into StockWatched (UserID, Symbol, IsEnabled, StartDate, StartPrice, TStopPercent) values (?1,?2,1,?3,?4,?5)`,
 		int64(userID),
 		symbol,
@@ -22,6 +22,12 @@ func (api *API) AddWatchedStock(userID UserID, symbol string, startDate string, 
 		startPrice.FloatString(2),
 		stopPercent.FloatString(2),
 	)
+	return
+}
+
+// Removes a watched stock:
+func (api *API) RemoveWatched(watchedID WatchedID) (err error) {
+	_, err = api.db.Exec(`delete from StockWatched where rowid = ?1`, int64(watchedID))
 	return
 }
 
@@ -37,7 +43,7 @@ type WatchedStock struct {
 }
 
 // Gets all stocks watched by UserID:
-func (api *API) GetWatchedStocksByUser(userID UserID) (watched []WatchedStock, err error) {
+func (api *API) GetWatchedByUser(userID UserID) (watched []WatchedStock, err error) {
 	// Anonymous structs are cool.
 	rows := make([]struct {
 		ID           int64  `db:"ID"`
@@ -163,8 +169,9 @@ func (api *API) GetWatchedDetailsForUser(userID UserID) (details []WatchedDetail
 	err = api.db.Select(&rows, `
 select ID, UserID, Symbol, IsEnabled, StartDate, StartPrice, TStopPercent, LastTStopNotifyTime, CurrPrice, CurrHour, Date, Avg200Day, Avg50Day, SMAPercent, HighestClose, LowestClose
 from StockWatchedDetail o
-where o.UserID = ?1 and o.CurrHour = ?2
-order by o.ID asc`, int64(userID), api.CurrentHour().Format(time.RFC3339))
+where (o.UserID = ?1)
+  and (datetime(o.CurrHour) = (select max(datetime(h.DateTime)) from StockHourly h where h.Symbol = o.Symbol))
+order by o.ID asc`, int64(userID))
 	if err != nil {
 		return
 	}
@@ -180,8 +187,9 @@ func (api *API) GetWatchedDetailsForSymbol(symbol string) (details []WatchedDeta
 	err = api.db.Select(&rows, `
 select ID, UserID, Symbol, IsEnabled, StartDate, StartPrice, TStopPercent, LastTStopNotifyTime, CurrPrice, CurrHour, Date, Avg200Day, Avg50Day, SMAPercent, HighestClose, LowestClose
 from StockWatchedDetail o
-where o.Symbol = ?1 and o.CurrHour = ?2
-order by o.ID asc`, symbol, api.CurrentHour().Format(time.RFC3339))
+where (o.Symbol = ?1)
+  and (datetime(o.CurrHour) = (select max(datetime(h.DateTime)) from StockHourly h where h.Symbol = o.Symbol))
+order by o.ID asc`, symbol)
 	if err != nil {
 		return
 	}

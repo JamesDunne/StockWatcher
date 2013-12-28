@@ -1,0 +1,20 @@
+
+{{define "owned/add"}}{{template "_head"}}
+	<title>Stocks - Add Owned Stock</title>
+	<script type="text/javascript" src="/static/dash.js"></script>
+{{template "_body"}}
+	<h1>Welcome, {{.User.Name}} &lt;{{.User.PrimaryEmail}}&gt;</h1>
+	<div>
+		Click <a href="/auth/logout">here</a> to log out.
+	</div>
+	<div>
+		<form action="/ui/owned/add" method="POST">
+			<label for="symbol">Symbol:</label><input type="text" name="symbol" value="MSFT"><br>
+			<label for="buyDate">Buy Date:</label><input type="text" name="buyDate" value="2013-09-04"><br>
+			<label for="buyPrice">Buy Price:</label><input type="text" name="buyPrice" value="30.00"><br>
+			<label for="shares">Shares:</label><input type="text" name="shares" value="20"><br>
+			<label for="stopPercent">T-Stop Percent:</label><input type="text" name="stopPercent" value="25.00"><br>
+			<input type="submit" value="submit">
+		</form>
+	</div>
+{{template "_tail"}}{{end}}

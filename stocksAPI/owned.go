@@ -14,7 +14,7 @@ import (
 )
 
 // Add an owned stock for UserID:
-func (api *API) AddOwnedStock(userID UserID, symbol string, buyDate string, buyPrice *big.Rat, shares int, stopPercent *big.Rat) (err error) {
+func (api *API) AddOwned(userID UserID, symbol string, buyDate string, buyPrice *big.Rat, shares int, stopPercent *big.Rat) (err error) {
 	_, err = api.db.Exec(`insert or ignore into StockOwned (UserID, Symbol, BuyDate, IsEnabled, BuyPrice, Shares, TStopPercent) values (?1,?2,?3,1,?4,?5,?6)`,
 		int64(userID),
 		symbol,
@@ -23,6 +23,12 @@ func (api *API) AddOwnedStock(userID UserID, symbol string, buyDate string, buyP
 		shares,
 		stopPercent.FloatString(2),
 	)
+	return
+}
+
+// Removes an owned stock:
+func (api *API) RemoveOwned(ownedID OwnedID) (err error) {
+	_, err = api.db.Exec(`delete from StockOwned where rowid = ?1`, int64(ownedID))
 	return
 }
 
@@ -39,7 +45,7 @@ type OwnedStock struct {
 }
 
 // Gets all stocks owned by UserID:
-func (api *API) GetOwnedStocksByUser(userID UserID) (owned []OwnedStock, err error) {
+func (api *API) GetOwnedByUser(userID UserID) (owned []OwnedStock, err error) {
 	// Anonymous structs are cool.
 	rows := make([]struct {
 		ID           int64  `db:"ID"`

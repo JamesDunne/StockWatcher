@@ -122,7 +122,7 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 
 		case "/owned/list":
 			// Get list of owned stocks w/ details.
-			owned, err := api.GetOwnedStocksByUser(apiuser.UserID)
+			owned, err := api.GetOwnedByUser(apiuser.UserID)
 			if err != nil {
 				log.Println(err)
 				http.Error(w, "Fail GetOwnedStocksByUser", http.StatusInternalServerError)
@@ -132,7 +132,7 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 
 		case "/watched/list":
 			// Get list of watched stocks w/ details.
-			watched, err := api.GetWatchedStocksByUser(apiuser.UserID)
+			watched, err := api.GetWatchedByUser(apiuser.UserID)
 			if err != nil {
 				log.Println(err)
 				http.Error(w, "Fail GetWatchedStocksByUser", http.StatusInternalServerError)
