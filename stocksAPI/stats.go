@@ -91,7 +91,7 @@ func (api *API) RecordHistory(symbol string) (err error) {
 func (api *API) RecordStats(symbol string) (err error) {
 	err = api.tx(func(tx *sqlx.Tx) (err error) {
 		_, err = api.db.Exec(`
-insert into StockStats (Symbol, Date, TradeDayIndex, Avg200Day, Avg50Day, SMAPercent)
+replace into StockStats (Symbol, Date, TradeDayIndex, Avg200Day, Avg50Day, SMAPercent)
 select Symbol, Date, TradeDayIndex, Avg200, Avg50, ((Avg50 / Avg200) - 1) * 100 as SMAPercent
 from (
 	select h.Symbol, h.Date, h.TradeDayIndex

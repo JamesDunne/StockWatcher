@@ -9,6 +9,7 @@
 					<tr>
 						<th>Symbol</th>
 						<th>Buy Date</th>
+						<th>Recent Time</th>
 						<th>Recent Price</th>
 						<th>Shares</th>
 						<th>T-Stop %</th>
@@ -23,7 +24,8 @@
 					{{range .Owned}}
 					<tr>
 						<td class="left"><a href="http://stockcharts.com/c-sc/sc?s={{.Symbol}}&p=D&b=5&g=0&i=t12529527186&r=1386119742619" target="_blank">{{.Symbol}}</a></td>
-						<td class="left">{{.BuyDate.Format "2006-01-02"}}</td>
+						<td class="right">{{.BuyDate.Format "2006-01-02"}}</td>
+						<td class="right">{{.CurrHour.Format "2006-01-02 15:04"}}</td>
 						<td class="right">{{.CurrPrice.FloatString 2}}</td>
 						<td class="right">{{.Shares}}</td>
 						<td class="right">{{.TStopPercent.FloatString 2}}</td>
@@ -41,6 +43,4 @@
 		{{end}}
 		</div>
 	</div>
-
-	{{/* http://stockcharts.com/c-sc/sc?s=AAPL&p=D&b=5&g=0&i=t12529527186&r=1386119742619 */}}
 {{template "_tail"}}{{end}}

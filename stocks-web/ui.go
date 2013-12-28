@@ -70,8 +70,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Define our model:
-
+	// Handle request:
 	switch r.URL.Path {
 	case "/register":
 		// Fetch data to be used by the template:
@@ -80,6 +79,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 		}{
 			User: apiuser,
 		}
+
 		uiTmpl.ExecuteTemplate(w, "register", model)
 		return
 
@@ -92,6 +92,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 			User:  apiuser,
 			Owned: getOwned(api, apiuser.UserID),
 		}
+
 		err := uiTmpl.ExecuteTemplate(w, "dash", model)
 		if err != nil {
 			panic(err)

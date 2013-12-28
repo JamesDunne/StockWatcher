@@ -179,8 +179,9 @@ func (api *API) GetOwnedDetailsForUser(userID UserID) (details []OwnedDetails, e
 	err = api.db.Select(&rows, `
 select ID, UserID, Symbol, BuyDate, IsEnabled, BuyPrice, Shares, TStopPercent, LastTStopNotifyTime, CurrPrice, CurrHour, Date, Avg200Day, Avg50Day, SMAPercent, HighestClose, LowestClose
 from StockOwnedDetail o
-where o.UserID = ?1 and o.CurrHour = ?2
-order by o.ID asc`, int64(userID), api.CurrentHour().Format(time.RFC3339))
+where (o.UserID = ?1)
+  and (datetime(o.CurrHour) = (select max(datetime(h.DateTime)) from StockHourly h where h.Symbol = o.Symbol))
+order by o.ID asc`, int64(userID))
 	if err != nil {
 		return
 	}
@@ -196,8 +197,9 @@ func (api *API) GetOwnedDetailsForSymbol(symbol string) (details []OwnedDetails,
 	err = api.db.Select(&rows, `
 select ID, UserID, Symbol, BuyDate, IsEnabled, BuyPrice, Shares, TStopPercent, LastTStopNotifyTime, CurrPrice, CurrHour, Date, Avg200Day, Avg50Day, SMAPercent, HighestClose, LowestClose
 from StockOwnedDetail o
-where o.Symbol = ?1 and o.CurrHour = ?2
-order by o.ID asc`, symbol, api.CurrentHour().Format(time.RFC3339))
+where (o.Symbol = ?1)
+  and (datetime(o.CurrHour) = (select max(datetime(h.DateTime)) from StockHourly h where h.Symbol = o.Symbol))
+order by o.ID asc`, symbol)
 	if err != nil {
 		return
 	}
