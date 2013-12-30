@@ -122,11 +122,13 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 
 		case "/owned/list":
 			// Get list of owned stocks w/ details.
-			rsperr = fmt.Errorf("TODO")
+			owned, _ := getDetailsSplit(api, apiuser.UserID)
+			rsp = owned
 
 		case "/watched/list":
 			// Get list of watched stocks w/ details.
-			rsperr = fmt.Errorf("TODO")
+			_, watched := getDetailsSplit(api, apiuser.UserID)
+			rsp = watched
 
 		default:
 			rspcode = 404

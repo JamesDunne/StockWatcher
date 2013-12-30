@@ -1,8 +1,10 @@
 package stocks
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/big"
+	"strconv"
 	"time"
 )
 
@@ -24,6 +26,28 @@ func (d Decimal) CurrencyString() string {
 		return d.Value.FloatString(2)
 	}
 }
+
+func (d Decimal) MarshalJSON() ([]byte, error) {
+	return json.Marshal(d.Value.FloatString(2))
+}
+
+func (d *Decimal) UnmarshalJSON(data []byte) error {
+	str := new(string)
+	err := json.Unmarshal(data, str)
+	if err != nil {
+		return err
+	}
+	d.Value = ToDecimal(*str).Value
+	return nil
+}
+
+func ToDecimal(v string) Decimal {
+	r := new(big.Rat)
+	r.SetString(v)
+	return Decimal{Value: r}
+}
+
+// --------------
 
 type NullDecimal struct {
 	Value *big.Rat
@@ -52,13 +76,29 @@ func (d NullDecimal) CurrencyString() string {
 	}
 }
 
-var DecimalNull = NullDecimal{Value: nil, Valid: false}
-
-func ToDecimal(v string) Decimal {
-	r := new(big.Rat)
-	r.SetString(v)
-	return Decimal{Value: r}
+func (d NullDecimal) MarshalJSON() ([]byte, error) {
+	if !d.Valid {
+		return []byte("null"), nil
+	}
+	return json.Marshal(d.Value.FloatString(2))
 }
+
+func (d *NullDecimal) UnmarshalJSON(data []byte) error {
+	str := ""
+	err := json.Unmarshal(data, &str)
+	if err != nil {
+		return err
+	}
+	if str == "" {
+		d.Valid = false
+		return nil
+	}
+	d.Value = ToDecimal(str).Value
+	d.Valid = true
+	return nil
+}
+
+var DecimalNull = NullDecimal{Value: nil, Valid: false}
 
 func ToNullDecimal(v string) NullDecimal {
 	if v == "" {
@@ -79,6 +119,26 @@ func (d Float64) String() string {
 	return fmt.Sprintf("%.2f", d.Value)
 }
 
+func (d Float64) MarshalJSON() ([]byte, error) {
+	return json.Marshal(fmt.Sprintf("%f", d.Value))
+}
+
+func (d *Float64) UnmarshalJSON(data []byte) error {
+	str := ""
+	err := json.Unmarshal(data, &str)
+	if err != nil {
+		return err
+	}
+	f, err := strconv.ParseFloat(str, 64)
+	if err != nil {
+		return err
+	}
+	d.Value = f
+	return nil
+}
+
+// --------------
+
 type NullFloat64 struct {
 	Value float64
 	Valid bool
@@ -92,8 +152,48 @@ func (d NullFloat64) String() string {
 	}
 }
 
+func (d NullFloat64) MarshalJSON() ([]byte, error) {
+	if !d.Valid {
+		return []byte("null"), nil
+	}
+	return json.Marshal(fmt.Sprintf("%f", d.Value))
+}
+
+func (d *NullFloat64) UnmarshalJSON(data []byte) error {
+	str := ""
+	err := json.Unmarshal(data, &str)
+	if err != nil {
+		return err
+	}
+	if str == "" {
+		d.Valid = false
+		return nil
+	}
+	f, err := strconv.ParseFloat(str, 64)
+	if err != nil {
+		return err
+	}
+	d.Value = f
+	d.Valid = true
+	return nil
+}
+
+func ToNullFloat64(v string) NullFloat64 {
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return NullFloat64{Valid: false}
+	}
+	return NullFloat64{Value: f, Valid: true}
+}
+
+// --------------
+
 type DateTime struct {
 	Value time.Time
+}
+
+func (d DateTime) String() string {
+	return d.Value.Format(time.RFC3339)
 }
 
 func (d DateTime) Format(format string) string {
@@ -104,9 +204,36 @@ func (d DateTime) DateString() string {
 	return d.Value.Format(dateFmt)
 }
 
+func (d DateTime) MarshalJSON() ([]byte, error) {
+	return json.Marshal(d.Value.Format(time.RFC3339))
+}
+
+func (d *DateTime) UnmarshalJSON(data []byte) error {
+	str := ""
+	err := json.Unmarshal(data, &str)
+	if err != nil {
+		return err
+	}
+	t, err := time.ParseInLocation(time.RFC3339, str, LocNY)
+	if err != nil {
+		return err
+	}
+	d.Value = t
+	return nil
+}
+
+// --------------
+
 type NullDateTime struct {
 	Value time.Time
 	Valid bool
+}
+
+func (d NullDateTime) String() string {
+	if !d.Valid {
+		return ""
+	}
+	return d.Value.Format(time.RFC3339)
 }
 
 func (d NullDateTime) Format(format string) string {
@@ -114,6 +241,32 @@ func (d NullDateTime) Format(format string) string {
 		return ""
 	}
 	return d.Value.Format(format)
+}
+
+func (d NullDateTime) MarshalJSON() ([]byte, error) {
+	if !d.Valid {
+		return []byte("null"), nil
+	}
+	return json.Marshal(d.Value.Format(time.RFC3339))
+}
+
+func (d *NullDateTime) UnmarshalJSON(data []byte) error {
+	str := ""
+	err := json.Unmarshal(data, &str)
+	if err != nil {
+		return err
+	}
+	if str == "" {
+		d.Valid = false
+		return nil
+	}
+	t, err := time.ParseInLocation(time.RFC3339, str, LocNY)
+	if err != nil {
+		return err
+	}
+	d.Value = t
+	d.Valid = true
+	return nil
 }
 
 var DateTimeNull = NullDateTime{Valid: false}

@@ -36,6 +36,22 @@ func getDetails(api *stocks.API, userID stocks.UserID) []stocks.StockDetail {
 	return details
 }
 
+func getDetailsSplit(api *stocks.API, userID stocks.UserID) (owned []stocks.StockDetail, watched []stocks.StockDetail) {
+	details := getDetails(api, userID)
+	owned = make([]stocks.StockDetail, 0, len(details))
+	watched = make([]stocks.StockDetail, 0, len(details))
+
+	for _, s := range details {
+		if s.Stock.IsWatched {
+			watched = append(watched, s)
+		} else {
+			owned = append(owned, s)
+		}
+	}
+
+	return
+}
+
 func fetchLatest(api *stocks.API, symbols ...string) {
 	// Run through each actively tracked stock and calculate stopping prices, notify next of kin, what have you...
 	log.Printf("%d stocks tracked.\n", len(symbols))
@@ -166,17 +182,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 
 	case "/dash":
 		// Fetch data to be used by the template:
-		details := getDetails(api, apiuser.UserID)
-		owned := make([]stocks.StockDetail, 0, len(details))
-		watched := make([]stocks.StockDetail, 0, len(details))
-
-		for _, s := range details {
-			if s.Stock.IsWatched {
-				watched = append(watched, s)
-			} else {
-				owned = append(owned, s)
-			}
-		}
+		owned, watched := getDetailsSplit(api, apiuser.UserID)
 
 		model := struct {
 			User    *stocks.User

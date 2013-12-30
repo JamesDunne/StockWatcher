@@ -137,7 +137,7 @@ create index if not exists IX_Stock on Stock (
 		// StockDetail
 		`drop view if exists StockDetail`,
 		`
-create view StockDetail
+create view if not exists StockDetail
 as
 select s.StockID, `+stockColsS+`
      , h.rowid AS StockHourlyID, h.Current as CurrPrice, h.DateTime as CurrHour
