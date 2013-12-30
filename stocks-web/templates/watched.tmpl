@@ -9,17 +9,32 @@
 	</div>
 	<h2>Dashboard - Add Watched Stock</h2>
 	<div>
-		<form action="/ui/watched/add" method="POST">
-			<table>
-				<tbody>
-					<tr><td><label for="symbol">Symbol:</label></td><td><input type="text" name="symbol" value="MSFT"></td></tr>
-					<tr><td><label for="buyDate">Buy Date:</label></td><td><input type="text" name="buyDate" value="2013-09-04"></td></tr>
-					<tr><td><label for="buyPrice">Buy Price:</label></td><td><input type="text" name="buyPrice" value="30.00"></td></tr>
-					<tr><td><label for="shares">Shares:</label></td><td><input type="text" name="shares" value="20"></td></tr>
-					<tr><td><label for="stopPercent">T-Stop Percent:</label></td><td><input type="text" name="stopPercent" value="25.00"></td></tr>
-					<tr><td colspan="2"><input type="submit" value="submit"></td></tr>
-				</tbody>
-			</table>
-		</form>
+		<table>
+			<tbody>
+				<tr><td><label for="symbol">Symbol:</label></td><td><input type="text" id="symbol" value="MSFT"></td></tr>
+				<tr><td><label for="buyDate">Buy Date:</label></td><td><input type="text" id="buyDate" value="2013-09-04"></td></tr>
+				<tr><td><label for="buyPrice">Buy Price:</label></td><td><input type="text" id="buyPrice" value="30.00"></td></tr>
+				<tr><td><label for="shares">Shares:</label></td><td><input type="text" id="shares" value="20"></td></tr>
+				<tr><td><label for="stopPercent">T-Stop Percent:</label></td><td><input type="text" id="tstopPercent" value="25.00"></td></tr>
+				<tr><td colspan="2"><button id="btnAdd">Add</button></td></tr>
+			</tbody>
+		</table>
 	</div>
+	<script type="text/javascript">
+		bind("#btnAdd", "click", function(e) {
+			e.preventDefault();
+
+			var st = {
+				Symbol: v("symbol"),
+				BuyDate: v("buyDate"),
+				BuyPrice: v("buyPrice"),
+				Shares: tryParseInt(v("shares")),
+				IsWatched: true,
+				TStopPercent: v("tstopPercent"),
+			};
+			postJson('/api/stock/add', st, function (rsp) { reload("/ui/dash"); }, function(rsp) { alert(rsp); });
+
+			return false;
+		});
+	</script>
 {{template "_tail"}}{{end}}
