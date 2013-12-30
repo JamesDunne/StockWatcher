@@ -217,29 +217,6 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 
 		// -------------------------------------------------
 
-	case "/stock/remove":
-		if r.Method == "POST" {
-			// Parse form data:
-			err := r.ParseForm()
-			if err != nil {
-				panic(err)
-			}
-
-			stockIDint, err := strconv.ParseInt(r.PostForm.Get("id"), 10, 0)
-			if err != nil {
-				panic(err)
-			}
-			stockID := stocks.StockID(stockIDint)
-
-			err = api.RemoveStock(stockID)
-			if err != nil {
-				panic(err)
-			}
-
-			w.WriteHeader(200)
-		}
-		return
-
 	case "/owned/add":
 		if r.Method == "GET" {
 			// Data to be used by the template:
@@ -253,38 +230,8 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				panic(err)
 			}
-		} else {
-			// Assume POST.
-
-			// Parse form data:
-			err := r.ParseForm()
-			if err != nil {
-				panic(err)
-			}
-
-			s := &stocks.Stock{
-				UserID:       apiuser.UserID,
-				Symbol:       notEmpty(r.PostForm.Get("symbol"), "Symbol required"),
-				BuyDate:      stocks.ToDateTime(dateFmt, r.PostForm.Get("buyDate")),
-				BuyPrice:     stocks.ToDecimal(r.PostForm.Get("buyPrice")),
-				Shares:       tryParseInt(r.PostForm.Get("shares"), "Invalid shares value"),
-				IsWatched:    false,
-				TStopPercent: stocks.ToNullDecimal(r.PostForm.Get("stopPercent")),
-				// TODO: more fields!
-			}
-
-			// Add the stock:
-			err = api.AddStock(s)
-			if err != nil {
-				panic(err)
-			}
-
-			// Fetch latest data for new symbol:
-			fetchLatest(api, s.Symbol)
-
-			http.Redirect(w, r, "/ui/dash", http.StatusFound)
+			return
 		}
-		return
 
 	case "/watched/add":
 		if r.Method == "GET" {
@@ -299,46 +246,8 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				panic(err)
 			}
-		} else {
-			// Assume POST.
-
-			// Parse form data:
-			err := r.ParseForm()
-			if err != nil {
-				panic(err)
-			}
-
-			s := &stocks.Stock{
-				UserID:       apiuser.UserID,
-				Symbol:       notEmpty(r.PostForm.Get("symbol"), "Symbol required"),
-				BuyDate:      stocks.ToDateTime(dateFmt, r.PostForm.Get("buyDate")),
-				BuyPrice:     stocks.ToDecimal(r.PostForm.Get("buyPrice")),
-				Shares:       tryParseInt(r.PostForm.Get("shares"), "Invalid shares value"),
-				IsWatched:    true,
-				TStopPercent: stocks.ToNullDecimal(r.PostForm.Get("stopPercent")),
-				// TODO: more fields!
-			}
-
-			// Add the stock:
-			err = api.AddStock(s)
-			if err != nil {
-				panic(err)
-			}
-
-			// Check if we have to delete history:
-			minBuyDate := api.GetMinBuyDate(s.Symbol)
-			if minBuyDate.Valid && s.BuyDate.Value.Before(minBuyDate.Value) {
-				// Introducing earlier BuyDates screws up the TradeDayIndex values.
-				// TODO(jsd): We could probably fix this better by simply reindexing the TradeDayIndex values and filling in the holes.
-				api.DeleteHistory(s.Symbol)
-			}
-
-			// Fetch latest data for new symbol:
-			fetchLatest(api, s.Symbol)
-
-			http.Redirect(w, r, "/ui/dash", http.StatusFound)
+			return
 		}
-		return
 	}
 
 	http.NotFound(w, r)

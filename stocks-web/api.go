@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	//"net/url"
@@ -33,6 +34,26 @@ type jsonResponse struct {
 
 var null = json.RawMessage([]byte("null"))
 
+func panicIf(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+func parsePostJson(r *http.Request, data interface{}) {
+	postjson, err := ioutil.ReadAll(r.Body)
+	panicIf(err)
+
+	err = json.Unmarshal(postjson, data)
+	panicIf(err)
+}
+
+func validate(test bool, msg string) {
+	if !test {
+		panic(BadRequestError{Message: msg})
+	}
+}
+
 // Handles /api/* requests for JSON API:
 func apiHandler(w http.ResponseWriter, r *http.Request) {
 	// Get authenticated user data:
@@ -46,6 +67,16 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 	// Send JSON response at end:
 	defer func() {
 		// Determine if error or success:
+		if err := recover(); err != nil {
+			if bad, ok := err.(BadRequestError); ok {
+				rsperr = bad
+				rspcode = 400
+			} else {
+				log.Println(err)
+				rsperr = fmt.Errorf("Internal server error")
+			}
+		}
+
 		var jrsp jsonResponse
 		if rsperr != nil {
 			// Error response:
@@ -146,29 +177,94 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 			// Join to existing user with secondary email.
 			rsperr = fmt.Errorf("TODO")
 
-		case "/owned/add":
-			// Add owned stock.
-			rsperr = fmt.Errorf("TODO")
+		case "/stock/add":
+			// Add stock.
 
-		case "/owned/disable":
-			// Disable notifications.
-			rsperr = fmt.Errorf("TODO")
+			// Parse body as JSON:
+			tmp := struct {
+				Symbol    string
+				BuyDate   string
+				BuyPrice  string
+				Shares    int64
+				IsWatched bool
 
-		case "/owned/enable":
-			// Enable notifications.
-			rsperr = fmt.Errorf("TODO")
+				TStopPercent   string
+				BuyStopPrice   string
+				SellStopPrice  string
+				RisePercent    string
+				FallPercent    string
+				NotifyBullBear bool
+			}{}
+			parsePostJson(r, &tmp)
 
-		case "/watched/add":
-			// Add watched stock.
-			rsperr = fmt.Errorf("TODO")
+			// Validate settings and respond 400 if failed:
+			validate(tmp.Symbol != "", "Symbol required")
+			validate(tmp.BuyDate != "", "BuyDate required")
+			validate(tmp.BuyPrice != "", "BuyPrice required")
 
-		case "/watched/disable":
-			// Disable notifications.
-			rsperr = fmt.Errorf("TODO")
+			// Convert JSON input into stock struct:
+			s := &stocks.Stock{
+				UserID:    apiuser.UserID,
+				Symbol:    tmp.Symbol,
+				BuyDate:   stocks.ToDateTime(dateFmt, tmp.BuyDate),
+				BuyPrice:  stocks.ToDecimal(tmp.BuyPrice),
+				Shares:    tmp.Shares,
+				IsWatched: tmp.IsWatched,
 
-		case "/watched/enable":
-			// Enable notifications.
-			rsperr = fmt.Errorf("TODO")
+				TStopPercent:   stocks.ToNullDecimal(tmp.TStopPercent),
+				BuyStopPrice:   stocks.ToNullDecimal(tmp.BuyStopPrice),
+				SellStopPrice:  stocks.ToNullDecimal(tmp.SellStopPrice),
+				RisePercent:    stocks.ToNullDecimal(tmp.RisePercent),
+				FallPercent:    stocks.ToNullDecimal(tmp.FallPercent),
+				NotifyBullBear: tmp.NotifyBullBear,
+			}
+
+			// Enable/disable notifications based on what's filled out:
+			if s.TStopPercent.Valid {
+				s.NotifyTStop = true
+			}
+			if s.BuyStopPrice.Valid {
+				s.NotifyBuyStop = true
+			}
+			if s.SellStopPrice.Valid {
+				s.NotifySellStop = true
+			}
+			if s.RisePercent.Valid {
+				s.NotifyRise = true
+			}
+			if s.FallPercent.Valid {
+				s.NotifyFall = true
+			}
+
+			// Add the stock record:
+			err = api.AddStock(s)
+			panicIf(err)
+
+			// Check if we have to recreate history:
+			minBuyDate := api.GetMinBuyDate(s.Symbol)
+			if minBuyDate.Valid && s.BuyDate.Value.Before(minBuyDate.Value) {
+				// Introducing earlier BuyDates screws up the TradeDayIndex values.
+				// TODO(jsd): We could probably fix this better by simply reindexing the TradeDayIndex values and filling in the holes.
+				api.DeleteHistory(s.Symbol)
+			}
+
+			// Fetch latest data for new symbol:
+			fetchLatest(api, s.Symbol)
+
+			rsp = "ok"
+
+		case "/stock/remove":
+			tmp := struct {
+				ID int64 `json:"id"`
+			}{}
+			parsePostJson(r, &tmp)
+
+			stockID := stocks.StockID(tmp.ID)
+
+			err = api.RemoveStock(stockID)
+			panicIf(err)
+
+			rsp = "ok"
 
 		default:
 			rspcode = 404
