@@ -23,25 +23,71 @@ import (
 import (
 	//"github.com/JamesDunne/StockWatcher/dbutil"
 	//"github.com/JamesDunne/StockWatcher/mailutil"
-	"github.com/JamesDunne/StockWatcher/stocksAPI"
+	"github.com/JamesDunne/StockWatcher/stocks"
 )
 
 // utilities:
 
-func getOwned(api *stocksAPI.API, userID stocksAPI.UserID) []stocksAPI.OwnedDetails {
-	owned, err := api.GetOwnedDetailsForUser(userID)
+func getDetails(api *stocks.API, userID stocks.UserID) []stocks.StockDetail {
+	details, err := api.GetStockDetailsForUser(userID)
 	if err != nil {
 		panic(err)
 	}
-	return owned
+	return details
 }
 
-func getWatched(api *stocksAPI.API, userID stocksAPI.UserID) []stocksAPI.WatchedDetails {
-	watched, err := api.GetWatchedDetailsForUser(userID)
-	if err != nil {
-		panic(err)
+func fetchLatest(api *stocks.API, symbols ...string) {
+	// Run through each actively tracked stock and calculate stopping prices, notify next of kin, what have you...
+	log.Printf("%d stocks tracked.\n", len(symbols))
+
+	for _, symbol := range symbols {
+		// Record trading history:
+		log.Printf("%s: recording historical data...\n", symbol)
+		err := api.RecordHistory(symbol)
+		if err != nil {
+			panic(err)
+		}
+
+		// Calculate and record statistics:
+		log.Printf("%s: calculating statistics...\n", symbol)
+		err = api.RecordStats(symbol)
+		if err != nil {
+			panic(err)
+		}
 	}
-	return watched
+
+	// Fetch current prices from Yahoo into the database:
+	log.Printf("Fetching current prices...\n")
+	api.GetCurrentHourlyPrices(symbols...)
+}
+
+func notEmpty(s string, err string) string {
+	if s == "" {
+		panic(fmt.Errorf("Symbol required"))
+	}
+	return s
+}
+
+type BadRequestError struct {
+	Message string
+}
+
+func (err BadRequestError) Error() string {
+	return err.Message
+}
+
+func badRequest(err error, msg string) {
+	if err != nil {
+		log.Println(err)
+		panic(BadRequestError{Message: msg})
+	}
+	return
+}
+
+func tryParseInt(s string, msg string) int64 {
+	v, err := strconv.ParseInt(s, 10, 0)
+	badRequest(err, msg)
+	return v
 }
 
 // ----------------------- Secured section:
@@ -53,7 +99,7 @@ var uiTmpl *template.Template
 // Handles /ui/* requests to present HTML UI to the user:
 func uiHandler(w http.ResponseWriter, r *http.Request) {
 	// Get API ready:
-	api, err := stocksAPI.NewAPI(dbPath)
+	api, err := stocks.NewAPI(dbPath)
 	if err != nil {
 		log.Println(err)
 		http.Error(w, "Could not open stocks database!", http.StatusInternalServerError)
@@ -65,7 +111,11 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Println(err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			if bad, ok := err.(BadRequestError); ok {
+				http.Error(w, bad.Error(), http.StatusBadRequest)
+			} else {
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+			}
 			return
 		}
 
@@ -89,7 +139,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 			// Data to be used by the template:
 			model := struct {
 				WebUser *UserCookieData
-				User    *stocksAPI.User
+				User    *stocks.User
 			}{
 				WebUser: webuser,
 				User:    apiuser,
@@ -99,11 +149,18 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// Assume POST.
 
+			// Assume apiuser == nil, implying webuser.Email not found in database.
+
 			// Add user:
-			apiuser = &stocksAPI.User{
-				PrimaryEmail:        webuser.Email,
+			apiuser = &stocks.User{
 				Name:                webuser.FullName,
 				NotificationTimeout: time.Hour * time.Duration(24),
+				Emails: []stocks.UserEmail{
+					stocks.UserEmail{
+						Email:     webuser.Email,
+						IsPrimary: true,
+					},
+				},
 			}
 
 			err = api.AddUser(apiuser)
@@ -119,14 +176,26 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 
 	case "/dash":
 		// Fetch data to be used by the template:
+		details := getDetails(api, apiuser.UserID)
+		owned := make([]stocks.StockDetail, 0, len(details))
+		watched := make([]stocks.StockDetail, 0, len(details))
+
+		for _, s := range details {
+			if s.Stock.IsWatched {
+				watched = append(watched, s)
+			} else {
+				owned = append(owned, s)
+			}
+		}
+
 		model := struct {
-			User    *stocksAPI.User
-			Owned   []stocksAPI.OwnedDetails
-			Watched []stocksAPI.WatchedDetails
+			User    *stocks.User
+			Owned   []stocks.StockDetail
+			Watched []stocks.StockDetail
 		}{
 			User:    apiuser,
-			Owned:   getOwned(api, apiuser.UserID),
-			Watched: getWatched(api, apiuser.UserID),
+			Owned:   owned,
+			Watched: watched,
 		}
 
 		err := uiTmpl.ExecuteTemplate(w, "dash", model)
@@ -144,28 +213,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 			panic(err)
 		}
 
-		// Run through each actively tracked stock and calculate stopping prices, notify next of kin, what have you...
-		log.Printf("%d stocks tracked.\n", len(symbols))
-
-		for _, symbol := range symbols {
-			// Record trading history:
-			log.Printf("%s: recording historical data...\n", symbol)
-			err = api.RecordHistory(symbol)
-			if err != nil {
-				panic(err)
-			}
-
-			// Calculate and record statistics:
-			log.Printf("%s: calculating statistics...\n", symbol)
-			err = api.RecordStats(symbol)
-			if err != nil {
-				panic(err)
-			}
-		}
-
-		// Fetch current prices from Yahoo into the database:
-		log.Printf("Fetching current prices...\n")
-		api.GetCurrentHourlyPrices(symbols...)
+		fetchLatest(api, symbols...)
 
 		// Redirect to dashboard with updated data:
 		http.Redirect(w, r, "/ui/dash", http.StatusFound)
@@ -173,7 +221,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 
 		// -------------------------------------------------
 
-	case "/owned/disable":
+	case "/stock/remove":
 		if r.Method == "POST" {
 			// Parse form data:
 			err := r.ParseForm()
@@ -181,59 +229,13 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 				panic(err)
 			}
 
-			ownedIDint, err := strconv.ParseInt(r.PostForm.Get("id"), 10, 0)
+			stockIDint, err := strconv.ParseInt(r.PostForm.Get("id"), 10, 0)
 			if err != nil {
 				panic(err)
 			}
-			ownedID := stocksAPI.OwnedID(ownedIDint)
+			stockID := stocks.StockID(stockIDint)
 
-			err = api.DisableOwned(ownedID)
-			if err != nil {
-				panic(err)
-			}
-
-			w.WriteHeader(200)
-		}
-		return
-
-	case "/owned/enable":
-		if r.Method == "POST" {
-			// Parse form data:
-			err := r.ParseForm()
-			if err != nil {
-				panic(err)
-			}
-
-			ownedIDint, err := strconv.ParseInt(r.PostForm.Get("id"), 10, 0)
-			if err != nil {
-				panic(err)
-			}
-			ownedID := stocksAPI.OwnedID(ownedIDint)
-
-			err = api.EnableOwned(ownedID)
-			if err != nil {
-				panic(err)
-			}
-
-			w.WriteHeader(200)
-		}
-		return
-
-	case "/owned/remove":
-		if r.Method == "POST" {
-			// Parse form data:
-			err := r.ParseForm()
-			if err != nil {
-				panic(err)
-			}
-
-			ownedIDint, err := strconv.ParseInt(r.PostForm.Get("id"), 10, 0)
-			if err != nil {
-				panic(err)
-			}
-			ownedID := stocksAPI.OwnedID(ownedIDint)
-
-			err = api.RemoveOwned(ownedID)
+			err = api.RemoveStock(stockID)
 			if err != nil {
 				panic(err)
 			}
@@ -246,7 +248,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			// Data to be used by the template:
 			model := struct {
-				User *stocksAPI.User
+				User *stocks.User
 			}{
 				User: apiuser,
 			}
@@ -264,112 +266,27 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 				panic(err)
 			}
 
-			symbol := r.PostForm.Get("symbol")
-			if symbol == "" {
-				http.Error(w, fmt.Sprintf("Symbol required"), http.StatusBadRequest)
-				return
-			}
-			buyDate := r.PostForm.Get("buyDate")
-			if _, err := time.Parse(dateFmt, buyDate); err != nil {
-				log.Println(err)
-				http.Error(w, fmt.Sprintf("Invalid buy date; must be in '%s' format", dateFmt), http.StatusBadRequest)
-				return
-			}
-			buyPrice := stocksAPI.ToRat(r.PostForm.Get("buyPrice"))
-			if buyPrice == nil {
-				http.Error(w, fmt.Sprintf("Buy price required"), http.StatusBadRequest)
-				return
-			}
-			shares, err := strconv.ParseInt(r.PostForm.Get("shares"), 10, 0)
-			if err != nil {
-				log.Println(err)
-				http.Error(w, fmt.Sprintf("Invalid shares value"), http.StatusBadRequest)
-				return
-			}
-			stopPercent := stocksAPI.ToRat(r.PostForm.Get("stopPercent"))
-			if stopPercent == nil {
-				http.Error(w, fmt.Sprintf("T-Stop Percent required"), http.StatusBadRequest)
-				return
+			s := &stocks.Stock{
+				UserID:       apiuser.UserID,
+				Symbol:       notEmpty(r.PostForm.Get("symbol"), "Symbol required"),
+				BuyDate:      stocks.ToDateTime(dateFmt, r.PostForm.Get("buyDate")),
+				BuyPrice:     stocks.ToDecimal(r.PostForm.Get("buyPrice")),
+				Shares:       tryParseInt(r.PostForm.Get("shares"), "Invalid shares value"),
+				IsWatched:    false,
+				TStopPercent: stocks.ToNullDecimal(r.PostForm.Get("stopPercent")),
+				// TODO: more fields!
 			}
 
-			// Add the owned stock:
-			err = api.AddOwned(apiuser.UserID, symbol, buyDate, buyPrice, int(shares), stopPercent)
+			// Add the stock:
+			err = api.AddStock(s)
 			if err != nil {
 				panic(err)
 			}
+
+			// Fetch latest data for new symbol:
+			fetchLatest(api, s.Symbol)
 
 			http.Redirect(w, r, "/ui/dash", http.StatusFound)
-		}
-		return
-
-		// -------------------------------------------------
-
-	case "/watched/disable":
-		if r.Method == "POST" {
-			// Parse form data:
-			err := r.ParseForm()
-			if err != nil {
-				panic(err)
-			}
-
-			watchedIDint, err := strconv.ParseInt(r.PostForm.Get("id"), 10, 0)
-			if err != nil {
-				panic(err)
-			}
-			watchedID := stocksAPI.WatchedID(watchedIDint)
-
-			err = api.DisableWatched(watchedID)
-			if err != nil {
-				panic(err)
-			}
-
-			w.WriteHeader(200)
-		}
-		return
-
-	case "/watched/enable":
-		if r.Method == "POST" {
-			// Parse form data:
-			err := r.ParseForm()
-			if err != nil {
-				panic(err)
-			}
-
-			watchedIDint, err := strconv.ParseInt(r.PostForm.Get("id"), 10, 0)
-			if err != nil {
-				panic(err)
-			}
-			watchedID := stocksAPI.WatchedID(watchedIDint)
-
-			err = api.EnableWatched(watchedID)
-			if err != nil {
-				panic(err)
-			}
-
-			w.WriteHeader(200)
-		}
-		return
-
-	case "/watched/remove":
-		if r.Method == "POST" {
-			// Parse form data:
-			err := r.ParseForm()
-			if err != nil {
-				panic(err)
-			}
-
-			watchedIDint, err := strconv.ParseInt(r.PostForm.Get("id"), 10, 0)
-			if err != nil {
-				panic(err)
-			}
-			watchedID := stocksAPI.WatchedID(watchedIDint)
-
-			err = api.RemoveWatched(watchedID)
-			if err != nil {
-				panic(err)
-			}
-
-			w.WriteHeader(200)
 		}
 		return
 
@@ -377,7 +294,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			// Data to be used by the template:
 			model := struct {
-				User *stocksAPI.User
+				User *stocks.User
 			}{
 				User: apiuser,
 			}
@@ -395,39 +312,25 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 				panic(err)
 			}
 
-			symbol := r.PostForm.Get("symbol")
-			if symbol == "" {
-				http.Error(w, fmt.Sprintf("Symbol required"), http.StatusBadRequest)
-				return
-			}
-			buyDate := r.PostForm.Get("buyDate")
-			if _, err := time.Parse(dateFmt, buyDate); err != nil {
-				log.Println(err)
-				http.Error(w, fmt.Sprintf("Invalid buy date; must be in '%s' format", dateFmt), http.StatusBadRequest)
-				return
-			}
-			buyPrice := stocksAPI.ToRat(r.PostForm.Get("buyPrice"))
-			if buyPrice == nil {
-				http.Error(w, fmt.Sprintf("Buy price required"), http.StatusBadRequest)
-				return
-			}
-			//shares, err := strconv.ParseInt(r.PostForm.Get("shares"), 10, 0)
-			//if err != nil {
-			//	log.Println(err)
-			//	http.Error(w, fmt.Sprintf("Invalid shares value"), http.StatusBadRequest)
-			//	return
-			//}
-			stopPercent := stocksAPI.ToRat(r.PostForm.Get("stopPercent"))
-			if stopPercent == nil {
-				http.Error(w, fmt.Sprintf("T-Stop Percent required"), http.StatusBadRequest)
-				return
+			s := &stocks.Stock{
+				UserID:       apiuser.UserID,
+				Symbol:       notEmpty(r.PostForm.Get("symbol"), "Symbol required"),
+				BuyDate:      stocks.ToDateTime(dateFmt, r.PostForm.Get("buyDate")),
+				BuyPrice:     stocks.ToDecimal(r.PostForm.Get("buyPrice")),
+				Shares:       tryParseInt(r.PostForm.Get("shares"), "Invalid shares value"),
+				IsWatched:    true,
+				TStopPercent: stocks.ToNullDecimal(r.PostForm.Get("stopPercent")),
+				// TODO: more fields!
 			}
 
-			// Add the owned stock:
-			err = api.AddWatched(apiuser.UserID, symbol, buyDate, buyPrice, stopPercent)
+			// Add the stock:
+			err = api.AddStock(s)
 			if err != nil {
 				panic(err)
 			}
+
+			// Fetch latest data for new symbol:
+			fetchLatest(api, s.Symbol)
 
 			http.Redirect(w, r, "/ui/dash", http.StatusFound)
 		}

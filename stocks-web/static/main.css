@@ -30,3 +30,12 @@ table.data th {
 table.data tr:nth-child(2n) {
 	background-color: #eee;
 }
+
+hr {
+	height: 0px;
+	margin: 0;
+	margin-top: 8px;
+	border: none;
+	border-bottom: 1px solid;
+ 	font-size: 1px;
+}

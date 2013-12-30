@@ -37,27 +37,6 @@ function postFormAndReload(url, formData) {
 
 
 
-function disableOwned(id) {
-	postFormAndReload('/ui/owned/disable', "id=" + id);
-}
-
-function enableOwned(id) {
-	postFormAndReload('/ui/owned/enable', "id=" + id);
-}
-
-function removeOwned(id) {
-	postFormAndReload('/ui/owned/remove', "id=" + id);
-}
-
-
-function disableWatched(id) {
-	postFormAndReload('/ui/watched/disable', "id=" + id);
-}
-
-function enableWatched(id) {
-	postFormAndReload('/ui/watched/enable', "id=" + id);
-}
-
-function removeWatched(id) {
-	postFormAndReload('/ui/watched/remove', "id=" + id);
+function removeStock(id) {
+	postFormAndReload('/ui/stock/remove', "id=" + id);
 }

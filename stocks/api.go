@@ -1,4 +1,4 @@
-package stocksAPI
+package stocks
 
 // general stuff:
 import (
@@ -36,8 +36,7 @@ func (api *API) LastTradingDate() time.Time { return api.lastTradingDate }
 func (api *API) CurrentHour() time.Time { return time.Now().Truncate(time.Hour) }
 
 type UserID int64
-type OwnedID int64
-type WatchedID int64
+type StockID int64
 
 // ------------------------- API functions:
 
@@ -56,12 +55,7 @@ func (api *API) GetAllTrackedSymbols() (symbols []string, err error) {
 		Symbol string `db:"Symbol"`
 	}, 0, 4)
 
-	err = api.db.Select(&rows, `
-select distinct Symbol from (
-	select Symbol from StockOwned where IsEnabled = 1
-	union all
-	select Symbol from StockWatched where IsEnabled = 1
-)`)
+	err = api.db.Select(&rows, `select distinct Symbol from Stock`)
 	if err != nil {
 		return
 	}
@@ -75,7 +69,7 @@ select distinct Symbol from (
 }
 
 // Gets the last date trading occurred for a stock symbol.
-func (api *API) GetLastTradeDay(symbol string) (date time.Time, tradeDay int64, err error) {
+func (api *API) GetLastTradeDay(symbol string) (date DateTime, tradeDay int64, err error) {
 	row := struct {
 		Date          string `db:"Date"`
 		TradeDayIndex int64  `db:"TradeDayIndex"`
@@ -86,7 +80,7 @@ func (api *API) GetLastTradeDay(symbol string) (date time.Time, tradeDay int64, 
 		return
 	}
 
-	date = TruncDate(TradeDateTime(row.Date))
+	date = fromDbDateTime(dateFmt, row.Date)
 	tradeDay = row.TradeDayIndex
 	err = nil
 	return

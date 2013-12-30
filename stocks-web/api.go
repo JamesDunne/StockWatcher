@@ -7,7 +7,7 @@ import (
 	"log"
 	"net/http"
 	//"net/url"
-	"time"
+	//"time"
 )
 
 // sqlite related imports:
@@ -21,7 +21,7 @@ import (
 import (
 	//"github.com/JamesDunne/StockWatcher/dbutil"
 	//"github.com/JamesDunne/StockWatcher/mailutil"
-	"github.com/JamesDunne/StockWatcher/stocksAPI"
+	"github.com/JamesDunne/StockWatcher/stocks"
 )
 
 // JSON response wrapper:
@@ -98,7 +98,7 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Open API database:
-	api, err := stocksAPI.NewAPI(dbPath)
+	api, err := stocks.NewAPI(dbPath)
 	if err != nil {
 		log.Println(err)
 		http.Error(w, "Could not open stocks database!", http.StatusInternalServerError)
@@ -122,23 +122,11 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 
 		case "/owned/list":
 			// Get list of owned stocks w/ details.
-			owned, err := api.GetOwnedByUser(apiuser.UserID)
-			if err != nil {
-				log.Println(err)
-				http.Error(w, "Fail GetOwnedStocksByUser", http.StatusInternalServerError)
-				return
-			}
-			rsp = owned
+			rsperr = fmt.Errorf("TODO")
 
 		case "/watched/list":
 			// Get list of watched stocks w/ details.
-			watched, err := api.GetWatchedByUser(apiuser.UserID)
-			if err != nil {
-				log.Println(err)
-				http.Error(w, "Fail GetWatchedStocksByUser", http.StatusInternalServerError)
-				return
-			}
-			rsp = watched
+			rsperr = fmt.Errorf("TODO")
 
 		default:
 			rspcode = 404
@@ -150,21 +138,7 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/user/register":
 			// Register new user with primary email.
-
-			if apiuser == nil {
-				// Add user:
-				apiuser = &stocksAPI.User{
-					PrimaryEmail:        webuser.Email,
-					Name:                webuser.FullName,
-					NotificationTimeout: time.Hour * time.Duration(24),
-				}
-				err = api.AddUser(apiuser)
-				if err != nil {
-					rsperr = err
-					return
-				}
-			}
-			rsp = apiuser
+			rsperr = fmt.Errorf("TODO")
 
 		case "/user/join":
 			// Join to existing user with secondary email.

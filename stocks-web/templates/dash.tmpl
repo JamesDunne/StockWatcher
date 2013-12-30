@@ -14,7 +14,25 @@
 	<div>
 		<h3>Owned</h3>
 		<div>
-		{{if .Owned}}
+		{{if .Owned}}{{template "table" .Owned}}{{else}}No owned stocks.{{end}}
+		</div>
+		<div>
+			<a href="/ui/owned/add">add</a>
+		</div>
+	</div>
+	<hr>
+	<div>
+		<h3>Watched</h3>
+		<div>
+		{{if .Watched}}{{template "table" .Watched}}{{else}}No watched stocks.{{end}}
+		</div>
+		<div>
+			<a href="/ui/watched/add">add</a>
+		</div>
+	</div>
+{{template "_tail"}}{{end}}
+
+{{define "table"}}
 			<table class="data">
 				<thead>
 					<tr>
@@ -29,81 +47,26 @@
 						<th class="calced">Recent Price</th>
 						<th class="calced">Gain/Loss %</th>
 						<th class="calced">Gain/Loss $</th>
-						<th>notify</th>
 						<th>remove</th>
 					</tr>
 				</thead>
 				<tbody>
-					{{range .Owned}}
+					{{range .}}
 					<tr>
-						<td class="entered left"><a href="http://finviz.com/chart.ashx?t={{.Symbol}}&ty=c&ta=1&p=d&s=l" target="_blank">{{.Symbol}}</a></td>
-						<td class="entered right">{{.BuyDate.Format "2006-01-02"}}</td>
-						<td class="entered right">{{.BuyPrice.FloatString 2}}</td>
-						<td class="entered right">{{.Shares}}</td>
-						<td class="entered right">{{.TStopPercent.FloatString 2}}</td>
-						<td class="calced right">{{.TStopPrice.FloatString 2}}</td>
-						<td class="calced right">{{.SMAPercent | printf "%.2f"}}</td>
+						<td class="entered left"><a href="http://finviz.com/chart.ashx?t={{.Stock.Symbol}}&ty=c&ta=1&p=d&s=l" target="_blank">{{.Stock.Symbol}}</a></td>
+						<td class="entered right">{{.Stock.BuyDate.Format "2006-01-02"}}</td>
+						<td class="entered right">{{.Stock.BuyPrice}}</td>
+						<td class="entered right">{{.Stock.Shares}}</td>
+						<td class="entered right">{{.Stock.TStopPercent}}</td>
+						<td class="calced right">{{.Detail.TStopPrice}}</td>
+						<td class="calced right">{{.Detail.SMAPercent}}</td>
 						<td class="calced right">{{.CurrHour.Format "2006-01-02 15:04"}}</td>
-						<td class="calced right">{{.CurrPrice.FloatString 2}}</td>
-						<td class="calced right">{{.GainLossPercent | printf "%.2f"}}</td>
-						<td class="calced right">{{.GainLossDollar.FloatString 2}}</td>
-						<td>{{if .IsEnabled}}<a href="javascript:disableOwned({{.OwnedID}});">disable</a>{{else}}<a href="javascript:enableOwned({{.OwnedID}});">enable</a>{{end}}</td>
-						<td><a href="javascript:removeOwned({{.OwnedID}});">remove</a></td>
+						<td class="calced right">{{.CurrPrice}}</td>
+						<td class="calced right">{{.Detail.GainLossPercent}}</td>
+						<td class="calced right">{{.Detail.GainLossDollar}}</td>
+						<td><a href="javascript:removeStock({{.Stock.StockID}});">remove</a></td>
 					</tr>
 					{{end}}
 				</tbody>
 			</table>
-		{{else}}
-			No owned stocks.
-		{{end}}
-		</div>
-		<div>
-			<a href="/ui/owned/add">add</a>
-		</div>
-	</div>
-	<hr>
-	<div>
-		<h3>Watching</h3>
-		<div>
-		{{if .Watched}}
-			<table class="data">
-				<thead>
-					<tr>
-						<th class="entered">Symbol</th>
-						<th class="entered">Start Date</th>
-						<th class="entered">Start Price</th>
-						<th class="entered">T-Stop %</th>
-						<th class="calced">T-Stop Price</th>
-						<th class="calced">50/200 SMA %</th>
-						<th class="calced">Recent Time</th>
-						<th class="calced">Recent Price</th>
-						<th>notify</th>
-						<th>remove</th>
-					</tr>
-				</thead>
-				<tbody>
-					{{range .Watched}}
-					<tr>
-						<td class="entered left"><a href="http://finviz.com/chart.ashx?t={{.Symbol}}&ty=c&ta=1&p=d&s=l" target="_blank">{{.Symbol}}</a></td>
-						<td class="entered right">{{.StartDate.Format "2006-01-02"}}</td>
-						<td class="entered right">{{.StartPrice.FloatString 2}}</td>
-						<td class="entered right">{{.TStopPercent.FloatString 2}}</td>
-						<td class="calced right">{{.TStopPrice.FloatString 2}}</td>
-						<td class="calced right">{{.SMAPercent | printf "%.2f"}}</td>
-						<td class="calced right">{{.CurrHour.Format "2006-01-02 15:04"}}</td>
-						<td class="calced right">{{.CurrPrice.FloatString 2}}</td>
-						<td>{{if .IsEnabled}}<a href="javascript:disableWatched({{.WatchedID}});">disable</a>{{else}}<a href="javascript:enableWatched({{.WatchedID}});">enable</a>{{end}}</td>
-						<td><a href="javascript:removeWatched({{.WatchedID}});">remove</a></td>
-					</tr>
-					{{end}}
-				</tbody>
-			</table>
-		{{else}}
-			No watched stocks.
-		{{end}}
-		</div>
-		<div>
-			<a href="/ui/watched/add">add</a>
-		</div>
-	</div>
-{{template "_tail"}}{{end}}
+{{end}}

@@ -1,4 +1,4 @@
-package stocksAPI
+package stocks
 
 import (
 	"fmt"
@@ -101,39 +101,118 @@ func (api *API) bulkInsert(tableName string, columns []string, rows [][]interfac
 	})
 }
 
-func sqliteNullTime(format string, v sql.NullString) *time.Time {
+func toDbBool(v bool) int64 {
+	if v {
+		return int64(1)
+	} else {
+		return int64(0)
+	}
+}
+
+func toDbNullDecimal(v NullDecimal, prec int) sql.NullString {
 	if !v.Valid {
-		return nil
+		return sql.NullString{String: "", Valid: false}
+	} else {
+		return sql.NullString{String: v.Value.FloatString(prec), Valid: true}
+	}
+}
+
+func toDbDecimal(v Decimal, prec int) string {
+	if v.Value == nil {
+		panic(fmt.Errorf("Unexpected nil value of *big.Rat for toDbDecimal!"))
+	} else {
+		return v.Value.FloatString(prec)
+	}
+}
+
+func toDbDateTime(v DateTime) string {
+	return v.Value.Format(time.RFC3339)
+}
+
+func toDbNullDateTime(format string, v NullDateTime) sql.NullString {
+	if !v.Valid {
+		return sql.NullString{String: "", Valid: false}
+	}
+
+	return sql.NullString{String: v.Value.Format(format), Valid: true}
+}
+
+func fromDbNullDecimal(v sql.NullString) NullDecimal {
+	if !v.Valid {
+		return NullDecimal{Value: nil, Valid: false}
+	}
+	d := NullDecimal{
+		Value: new(big.Rat),
+		Valid: true,
+	}
+	d.Value.SetString(v.String)
+	return d
+}
+
+func fromDbDecimal(v string) Decimal {
+	if v == "" {
+		panic("Unexpected empty string value in fromDbDecimal!")
+	}
+	d := new(big.Rat)
+	d.SetString(v)
+	return Decimal{Value: d}
+}
+
+func fromDbNullFloat64(v sql.NullFloat64) NullFloat64 {
+	if !v.Valid {
+		return NullFloat64{Valid: false}
+	}
+
+	return NullFloat64{Value: v.Float64, Valid: true}
+}
+
+func fromDbBool(i int64) bool {
+	if i == 0 {
+		return false
+	} else {
+		return true
+	}
+}
+
+func fromDbNullDateTime(format string, v sql.NullString) NullDateTime {
+	if !v.Valid {
+		return NullDateTime{Valid: false}
 	}
 
 	t, err := time.Parse(format, v.String)
 	if err != nil {
 		panic(err)
 	}
-	return &t
+	return NullDateTime{Value: t, Valid: true}
 }
 
-func parseNullTime(format string, v interface{}) *time.Time {
-	if v == nil {
-		return nil
-	}
-
-	t, err := time.Parse(format, v.(string))
+// parses the date/time, assuming NY timezone:
+func fromDbDateTime(format string, str string) DateTime {
+	t, err := time.ParseInLocation(time.RFC3339, str, LocNY)
 	if err != nil {
 		panic(err)
 	}
-	return &t
+	return DateTime{Value: t}
 }
 
-func minNullTime(a, b *time.Time) *time.Time {
-	if a == nil && b == nil {
-		return nil
-	} else if a == nil {
+// remove the time component of a datetime to get just a date at 00:00:00
+func TruncDate(t time.Time) time.Time {
+	hour, min, sec := t.Clock()
+	nano := t.Nanosecond()
+
+	d := time.Duration(0) - (time.Duration(nano) + time.Duration(sec)*time.Second + time.Duration(min)*time.Minute + time.Duration(hour)*time.Hour)
+	return t.Add(d)
+}
+
+func minNullTime(a, b NullDateTime) NullDateTime {
+	if !a.Valid && !b.Valid {
+		return NullDateTime{Valid: false}
+	} else if !a.Valid {
 		return b
-	} else if b == nil {
+	} else if !b.Valid {
 		return a
 	} else {
-		if (*a).After(*b) {
+		if (a.Value).After(b.Value) {
 			return b
 		} else {
 			return a
@@ -198,50 +277,7 @@ func RatToFloat(v *big.Rat) float64 {
 	return f
 }
 
-// remove the time component of a datetime to get just a date at 00:00:00
-func TruncDate(t time.Time) time.Time {
-	hour, min, sec := t.Clock()
-	nano := t.Nanosecond()
-
-	d := time.Duration(0) - (time.Duration(nano) + time.Duration(sec)*time.Second + time.Duration(min)*time.Minute + time.Duration(hour)*time.Hour)
-	return t.Add(d)
-}
-
-// parses the date/time in RFC3339 format, assuming NY timezone:
-func TradeDateTime(str string) time.Time {
-	t, err := time.ParseInLocation(time.RFC3339, str, LocNY)
-	if err != nil {
-		panic(err)
-	}
-	return t
-}
-
-// parses the date in yyyy-MM-dd format, assuming NY timezone:
-func TradeDate(str string) time.Time {
-	t, err := time.ParseInLocation(dateFmt, str, LocNY)
-	if err != nil {
-		panic(err)
-	}
-	return t
-}
-
-func TradeSqliteDateTime(str string) time.Time {
-	t, err := time.Parse(sqliteFmt, str)
-	if err != nil {
-		panic(err)
-	}
-	return t.In(LocNY)
-}
-
 // Check if the date is on a weekend:
 func IsWeekend(date time.Time) bool {
 	return date.Weekday() == 0 || date.Weekday() == 6
-}
-
-func ToBool(i int) bool {
-	if i == 0 {
-		return false
-	} else {
-		return true
-	}
 }

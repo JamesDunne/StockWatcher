@@ -1,4 +1,4 @@
-package stocksAPI
+package stocks
 
 import (
 	"fmt"
@@ -14,11 +14,6 @@ var symbols []string
 var err error
 
 // These test functions run in sequential order as defined here:
-
-func TestParseNullTime(t *testing.T) {
-	fmt.Printf("null time: %+v\n", parseNullTime(dateFmt, nil))
-	fmt.Printf("null time: %+v\n", parseNullTime(dateFmt, "2013-01-01"))
-}
 
 func TestTruncDate(t *testing.T) {
 	// Get the New York location for stock timezone:
@@ -44,10 +39,13 @@ func TestNewAPI(t *testing.T) {
 
 func TestAddUser(t *testing.T) {
 	user := &User{
-		PrimaryEmail:        "test@example.org",
 		Name:                "Test User",
 		NotificationTimeout: time.Duration(24) * time.Hour,
-		SecondaryEmails:     []string{"test@example2.org", "test@example3.org"},
+		Emails: []UserEmail{
+			UserEmail{Email: "test@example.org", IsPrimary: true},
+			UserEmail{Email: "test@example2.org", IsPrimary: false},
+			UserEmail{Email: "test@example3.org", IsPrimary: false},
+		},
 	}
 	err := api.AddUser(user)
 	if err != nil {
@@ -76,34 +74,60 @@ func TestGetUserBySecondaryEmail(t *testing.T) {
 	fmt.Printf("user1: %+v\n", user)
 }
 
-func TestAddOwnedStock(t *testing.T) {
-	err := api.AddOwnedStock(1, "MSFT", "2012-09-01", ToRat("40.00"), -10, ToRat("20.00"))
+func TestAddStock(t *testing.T) {
+	s := Stock{
+		UserID:    UserID(1),
+		Symbol:    "MSFT",
+		BuyDate:   ToDateTime(dateFmt, "2012-09-03"),
+		BuyPrice:  ToDecimal("40.00"),
+		Shares:    int64(-10),
+		IsWatched: false,
+
+		TStopPercent:  ToNullDecimal("20.00"),
+		BuyStopPrice:  DecimalNull,
+		SellStopPrice: DecimalNull,
+	}
+	err := api.AddStock(&s)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 }
 
-func TestAddOwnedStock2(t *testing.T) {
-	err := api.AddOwnedStock(1, "AAPL", "2012-09-01", ToRat("400.00"), +10, ToRat("20.00"))
+func TestAddStock2(t *testing.T) {
+	s := Stock{
+		UserID:    UserID(1),
+		Symbol:    "AAPL",
+		BuyDate:   ToDateTime(dateFmt, "2012-09-03"),
+		BuyPrice:  ToDecimal("400.00"),
+		Shares:    int64(+10),
+		IsWatched: false,
+
+		TStopPercent:  ToNullDecimal("20.00"),
+		BuyStopPrice:  DecimalNull,
+		SellStopPrice: DecimalNull,
+	}
+	err := api.AddStock(&s)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
-}
-
-func TestGetOwnedStocks(t *testing.T) {
-	stocks, err := api.GetOwnedStocksByUser(1)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	fmt.Printf("owned stocks:    %+v\n", stocks)
 }
 
 func TestAddWatchedStock(t *testing.T) {
-	err := api.AddWatchedStock(1, "AAPL", "2012-09-01", ToRat("400.00"), ToRat("20.00"))
+	s := Stock{
+		UserID:    UserID(1),
+		Symbol:    "MSFT",
+		BuyDate:   ToDateTime(dateFmt, "2012-09-03"),
+		BuyPrice:  ToDecimal("40.00"),
+		Shares:    int64(0),
+		IsWatched: true,
+
+		TStopPercent:  ToNullDecimal("20.00"),
+		BuyStopPrice:  DecimalNull,
+		SellStopPrice: DecimalNull,
+	}
+	err := api.AddStock(&s)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -111,21 +135,23 @@ func TestAddWatchedStock(t *testing.T) {
 }
 
 func TestAddWatchedStock2(t *testing.T) {
-	err := api.AddWatchedStock(2, "AAPL", "2012-09-01", ToRat("400.00"), ToRat("20.00"))
+	s := Stock{
+		UserID:    UserID(1),
+		Symbol:    "AAPL",
+		BuyDate:   ToDateTime(dateFmt, "2012-09-03"),
+		BuyPrice:  ToDecimal("400.00"),
+		Shares:    int64(0),
+		IsWatched: true,
+
+		TStopPercent:  ToNullDecimal("20.00"),
+		BuyStopPrice:  DecimalNull,
+		SellStopPrice: DecimalNull,
+	}
+	err := api.AddStock(&s)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
-}
-
-func TestGetWatchedStocks(t *testing.T) {
-	stocks, err := api.GetWatchedStocksByUser(1)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	fmt.Printf("watched stocks:  %+v\n", stocks)
 }
 
 func TestGetAllTrackedSymbols(t *testing.T) {
@@ -186,8 +212,8 @@ func TestGetCurrentHourlyPrices(t *testing.T) {
 	}
 }
 
-func TestGetOwnedDetailsForUser(t *testing.T) {
-	stocks, err := api.GetOwnedDetailsForUser(1)
+func TestGetStockDetailsForUser(t *testing.T) {
+	stocks, err := api.GetStockDetailsForUser(1)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -196,28 +222,8 @@ func TestGetOwnedDetailsForUser(t *testing.T) {
 	fmt.Printf("detail stocks: %+v\n", stocks)
 }
 
-func TestGetOwnedDetailsForSymbol(t *testing.T) {
-	stocks, err := api.GetOwnedDetailsForSymbol("MSFT")
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	fmt.Printf("detail stocks: %+v\n", stocks)
-}
-
-func TestGetWatchedDetailsForUser(t *testing.T) {
-	stocks, err := api.GetWatchedDetailsForUser(1)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	fmt.Printf("detail stocks: %+v\n", stocks)
-}
-
-func TestGetWatchedDetailsForSymbol(t *testing.T) {
-	stocks, err := api.GetWatchedDetailsForSymbol("AAPL")
+func TestGetStockDetailsForSymbol(t *testing.T) {
+	stocks, err := api.GetStockDetailsForSymbol("MSFT")
 	if err != nil {
 		t.Fatal(err)
 		return

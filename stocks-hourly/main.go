@@ -13,7 +13,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"math/big"
 	"net/mail"
 	"time"
 )
@@ -21,19 +20,8 @@ import (
 // Our own packages:
 import (
 	"github.com/JamesDunne/StockWatcher/mailutil"
-	"github.com/JamesDunne/StockWatcher/stocksAPI"
+	"github.com/JamesDunne/StockWatcher/stocks"
 )
-
-func currency(v *big.Rat) string {
-	if v.Sign() > 0 {
-		return "+" + v.FloatString(2)
-	} else if v.Sign() == 0 {
-		return " " + v.FloatString(2)
-	} else {
-		// Includes - sign:
-		return v.FloatString(2)
-	}
-}
 
 // ------------- main:
 
@@ -51,7 +39,7 @@ func main() {
 	mailutil.Server = *mailServerArg
 
 	// Create the API context which initializes the database:
-	api, err := stocksAPI.NewAPI(dbPath)
+	api, err := stocks.NewAPI(dbPath)
 	if err != nil {
 		log.Fatalln(err)
 		return
@@ -60,27 +48,71 @@ func main() {
 
 	// Testing data:
 	if *testArg {
-		testUser := &stocksAPI.User{
-			PrimaryEmail:        "test@example.org",
+		testUser := &stocks.User{
 			Name:                "Test User",
 			NotificationTimeout: time.Minute,
+			Emails: []stocks.UserEmail{
+				stocks.UserEmail{Email: "test@example.org", IsPrimary: true},
+			},
 		}
 		err := api.AddUser(testUser)
 
 		if err == nil {
 			// Real data from market:
-			api.AddOwned(testUser.UserID, "MSFT", "2013-09-03", stocksAPI.ToRat("31.88"), 10, stocksAPI.ToRat("2.50"))
-			api.AddOwned(testUser.UserID, "AAPL", "2013-09-03", stocksAPI.ToRat("488.58"), 10, stocksAPI.ToRat("2.50"))
-			api.AddWatched(testUser.UserID, "YHOO", "2013-09-03", stocksAPI.ToRat("31.88"), stocksAPI.ToRat("2.50"))
+			s := &stocks.Stock{
+				UserID:       testUser.UserID,
+				Symbol:       "MSFT",
+				BuyDate:      stocks.ToDateTime(dateFmt, "2013-09-03"),
+				BuyPrice:     stocks.ToDecimal("31.88"),
+				Shares:       10,
+				TStopPercent: stocks.ToNullDecimal("2.50"),
+			}
+			api.AddStock(s)
+			s = &stocks.Stock{
+				UserID:       testUser.UserID,
+				Symbol:       "MSFT",
+				BuyDate:      stocks.ToDateTime(dateFmt, "2013-09-03"),
+				BuyPrice:     stocks.ToDecimal("31.88"),
+				Shares:       -5,
+				TStopPercent: stocks.ToNullDecimal("2.50"),
+			}
+			api.AddStock(s)
 
-			api.AddOwned(testUser.UserID, "MSFT", "2013-09-03", stocksAPI.ToRat("31.88"), -5, stocksAPI.ToRat("2.50"))
-			api.AddOwned(testUser.UserID, "AAPL", "2013-09-03", stocksAPI.ToRat("488.58"), -5, stocksAPI.ToRat("2.50"))
+			s = &stocks.Stock{
+				UserID:       testUser.UserID,
+				Symbol:       "AAPL",
+				BuyDate:      stocks.ToDateTime(dateFmt, "2013-09-03"),
+				BuyPrice:     stocks.ToDecimal("488.58"),
+				Shares:       -5,
+				TStopPercent: stocks.ToNullDecimal("2.50"),
+			}
+			api.AddStock(s)
+			s = &stocks.Stock{
+				UserID:       testUser.UserID,
+				Symbol:       "AAPL",
+				BuyDate:      stocks.ToDateTime(dateFmt, "2013-09-03"),
+				BuyPrice:     stocks.ToDecimal("488.58"),
+				Shares:       10,
+				TStopPercent: stocks.ToNullDecimal("2.50"),
+			}
+			api.AddStock(s)
+
+			s = &stocks.Stock{
+				UserID:       testUser.UserID,
+				Symbol:       "YHOO",
+				BuyDate:      stocks.ToDateTime(dateFmt, "2013-09-03"),
+				BuyPrice:     stocks.ToDecimal("31.88"),
+				Shares:       0,
+				IsWatched:    true,
+				TStopPercent: stocks.ToNullDecimal("2.50"),
+			}
+			api.AddStock(s)
 		}
 	}
 
 	// Get today's date in NY time:
 	//today, lastTradeDate := api.Today(), api.LastTradingDate()
-	//if stocksAPI.IsWeekend(today) {
+	//if stocks.IsWeekend(today) {
 	//	// We don't work on weekends.
 	//	log.Printf("No work to do on weekends.")
 	//	return
@@ -120,52 +152,59 @@ func main() {
 
 	for _, symbol := range symbols {
 		// Calculate details of owned stocks and their owners for this symbol:
-		owned, err := api.GetOwnedDetailsForSymbol(symbol)
+		details, err := api.GetStockDetailsForSymbol(symbol)
 		if err != nil {
 			panic(err)
 		}
 
-		for _, own := range owned {
-			if !own.IsEnabled {
-				continue
-			}
+		for _, sd := range details {
+			s := &sd.Stock
+			d := &sd.Detail
 
 			// Get the owner:
-			user, err := api.GetUser(own.UserID)
+			user, err := api.GetUser(s.UserID)
 			if err != nil {
 				panic(err)
 			}
 
 			log.Printf("  %s\n", symbol)
-			log.Printf("    %s bought %d shares at %s on %s:\n", user.Name, own.Shares, own.BuyPrice.FloatString(2), own.BuyDate.Format(dateFmt))
-			log.Printf("    current: %s\n", own.CurrPrice.FloatString(2))
-			log.Printf("    t-stop:  %s\n", own.TStopPrice.FloatString(2))
-			log.Printf("    gain($): %s\n", currency(own.GainLossDollar))
-			log.Printf("    gain(%%): %.2f\n", own.GainLossPercent)
+			log.Printf("    %s bought %d shares at %s on %s:\n", user.Name, s.Shares, s.BuyPrice, s.BuyDate.DateString())
+			if sd.CurrPrice.Valid {
+				log.Printf("    current: %v\n", sd.CurrPrice)
+			}
+			if d.TStopPrice.Valid {
+				log.Printf("    t-stop:  %v\n", d.TStopPrice)
+			}
+			if d.GainLossDollar.Valid {
+				log.Printf("    gain($): %v\n", d.GainLossDollar.CurrencyString())
+			}
+			if d.GainLossPercent.Valid {
+				log.Printf("    gain(%%): %v\n", d.GainLossPercent)
+			}
 
 			// Check if (price < t-stop):
-			if own.CurrPrice.Cmp(own.TStopPrice) <= 0 {
+			if s.NotifyTStop && sd.CurrPrice.Valid && d.TStopPrice.Valid && sd.CurrPrice.Value.Cmp(d.TStopPrice.Value) <= 0 {
 				// Current price has fallen below trailing-stop price!
 				log.Println()
 				log.Println("  ALERT: Current price has fallen below trailing-stop price!")
 
 				// Determine next available delivery time:
 				nextDeliveryTime := time.Now()
-				if own.LastTStopNotifyTime != nil {
-					nextDeliveryTime = (*own.LastTStopNotifyTime).Add(user.NotificationTimeout)
+				if s.LastTimeTStop.Valid {
+					nextDeliveryTime = s.LastTimeTStop.Value.Add(user.NotificationTimeout)
 				}
 
 				// Can we deliver?
-				if own.LastTStopNotifyTime == nil || time.Now().After(nextDeliveryTime) {
-					log.Printf("  Delivering notification email to %s <%s>...\n", user.Name, user.PrimaryEmail)
+				if !s.LastTimeTStop.Valid || time.Now().After(nextDeliveryTime) {
+					log.Printf("  Delivering notification email to %s <%s>...\n", user.Name, user.PrimaryEmail())
 
 					// Format mail addresses:
 					from := mail.Address{"stock-watcher-" + symbol, "stock.watcher." + symbol + "@bittwiddlers.org"}
-					to := mail.Address{user.Name, user.PrimaryEmail}
+					to := mail.Address{user.Name, user.PrimaryEmail()}
 
 					// Format subject and body:
-					subject := symbol + " price fell below " + own.TStopPrice.FloatString(2)
-					body := fmt.Sprintf(`<html><body>%s current price %s fell below t-stop price %s</body></html>`, symbol, own.CurrPrice.FloatString(2), own.TStopPrice.FloatString(2))
+					subject := fmt.Sprintf("%s price fell below %s", symbol, d.TStopPrice)
+					body := fmt.Sprintf(`<html><body>%s current price %s fell below t-stop price %s</body></html>`, symbol, sd.CurrPrice, d.TStopPrice)
 
 					// Deliver email:
 					if err = mailutil.SendHtmlMessage(from, to, subject, body); err != nil {
@@ -173,8 +212,10 @@ func main() {
 						log.Printf("  Failed delivering notification email.\n")
 					} else {
 						log.Printf("  Delivered notification email.\n")
+
 						// Successfully delivered email as far as we know; record last delivery date/time:
-						api.UpdateOwnedLastNotifyTime(own.OwnedID, time.Now())
+						s.LastTimeTStop = stocks.NullDateTime{Value: time.Now(), Valid: true}
+						api.UpdateNotifyTimes(s)
 					}
 				} else {
 					log.Printf("  Not delivering notification email due to anti-spam timeout; next delivery after %s\n", nextDeliveryTime.Format(time.RFC3339))
@@ -182,29 +223,6 @@ func main() {
 			}
 
 			// TODO: check hard buy stop and sell stops.
-		}
-
-		// Calculate details of watched stocks and their watchers for this symbol:
-		watched, err := api.GetWatchedDetailsForSymbol(symbol)
-		if err != nil {
-			panic(err)
-		}
-
-		for _, watch := range watched {
-			if !watch.IsEnabled {
-				continue
-			}
-
-			// Get the watcher:
-			user, err := api.GetUser(watch.UserID)
-			if err != nil {
-				panic(err)
-			}
-
-			log.Printf("  %s\n", symbol)
-			log.Printf("    %s watching, start price %s on %s:\n", user.Name, watch.StartPrice.FloatString(2), watch.StartDate.Format(dateFmt))
-			log.Printf("    current: %s\n", watch.CurrPrice.FloatString(2))
-			log.Printf("    t-stop:  %s\n", watch.TStopPrice.FloatString(2))
 		}
 	}
 

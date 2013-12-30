@@ -1,4 +1,4 @@
-package stocksAPI
+package stocks
 
 // general stuff:
 import (
@@ -8,38 +8,39 @@ import (
 
 // Our own packages:
 import (
+	"database/sql"
 	"github.com/JamesDunne/StockWatcher/yql"
 	"github.com/jmoiron/sqlx"
 )
 
 // Fetches historical data from Yahoo Finance into the database.
 func (api *API) RecordHistory(symbol string) (err error) {
+	var lastDate time.Time
+
 	// Fetch earliest date of interest for symbol:
-	lastDate, lastTradeDay, err := api.GetLastTradeDay(symbol)
+	lastDateTime, lastTradeDay, err := api.GetLastTradeDay(symbol)
 	if err != nil {
 		// Find earliest date of interest for history:
-		minBuyDateV, err := api.getScalar(`select min(datetime(BuyDate)) from StockOwned where Symbol = ?1`, symbol)
-		if err != nil {
-			return err
-		}
-		minStartDateV, err := api.getScalar(`select min(datetime(StartDate)) from StockWatched where Symbol = ?1`, symbol)
+		row := struct {
+			Min sql.NullString `db:"Min"`
+		}{}
+		err := api.db.Get(&row, `select min(datetime(BuyDate)) as Min from Stock where Symbol = ?1`, symbol)
 		if err != nil {
 			return err
 		}
 
-		minDate := minNullTime(
-			parseNullTime(sqliteFmt, minBuyDateV),
-			parseNullTime(sqliteFmt, minStartDateV),
-		)
-		if minDate == nil {
+		minDate := fromDbNullDateTime(sqliteFmt, row.Min)
+		if !minDate.Valid {
 			lastDate = api.lastTradingDate
 		} else {
-			lastDate = (*minDate)
+			lastDate = minDate.Value
 		}
 
 		// Take it back at least 42 weeks to get the 200-day moving average:
 		lastDate = lastDate.Add(time.Duration(-42*7*24) * time.Hour)
 		lastTradeDay = 0
+	} else {
+		lastDate = lastDateTime.Value
 	}
 
 	// Do we need to fetch history?
@@ -65,7 +66,7 @@ func (api *API) RecordHistory(symbol string) (err error) {
 		}
 
 		// Only record dates after last-fetched dates:
-		if date.After(lastDate) {
+		if date.After(time.Time(lastDate)) {
 			rows = append(rows, []interface{}{
 				symbol,
 				date.Format(time.RFC3339),
@@ -115,17 +116,21 @@ func (api *API) GetCurrentHourlyPrices(symbols ...string) (prices map[string]*bi
 	toFetch := make([]string, 0, len(symbols))
 	prices = make(map[string]*big.Rat)
 	for _, symbol := range symbols {
-		lastTimeStr, err := api.getScalar(`select max(datetime(DateTime)) from StockHourly where Symbol = ?1`, symbol)
+		row := struct {
+			Max sql.NullString `db:"Max"`
+		}{}
+		err := api.db.Get(&row, `select max(datetime(DateTime)) as Max from StockHourly where Symbol = ?1`, symbol)
 		if err != nil {
 			panic(err)
 		}
+		lastTime := fromDbNullDateTime(sqliteFmt, row.Max)
 
 		// Determine if we need to fetch from Yahoo or not:
 		needFetch := false
-		if lastTimeStr == nil {
+		if !lastTime.Valid {
 			needFetch = true
 		} else {
-			lastHour := TradeSqliteDateTime(lastTimeStr.(string)).Truncate(time.Hour)
+			lastHour := time.Time(lastTime.Value).Truncate(time.Hour)
 			if lastHour.Before(currHour) {
 				needFetch = true
 			}
@@ -133,12 +138,20 @@ func (api *API) GetCurrentHourlyPrices(symbols ...string) (prices map[string]*bi
 
 		// TODO(jsd): could break this out to separate single query with IN clause
 		if !needFetch {
-			currPriceStr, err := api.getScalar(`select Current from StockHourly where Symbol = ?1 and DateTime = ?2`, symbol, currHour.Format(time.RFC3339))
+			row := struct {
+				Current sql.NullString `db:"Current"`
+			}{}
+			err := api.db.Get(&row, `select Current from StockHourly where Symbol = ?1 and DateTime = ?2`, symbol, currHour.Format(time.RFC3339))
 			if err != nil {
 				panic(err)
 			}
-			prices[symbol] = ToRat(currPriceStr.(string))
-			continue
+
+			if row.Current.Valid {
+				prices[symbol] = ToRat(row.Current.String)
+				continue
+			} else {
+				needFetch = true
+			}
 		}
 
 		// Add it to the list of symbols to be fetched from Yahoo:
@@ -154,10 +167,11 @@ func (api *API) GetCurrentHourlyPrices(symbols ...string) (prices map[string]*bi
 
 		for _, quote := range quotes {
 			// Record the current hourly price:
-			_, err = api.db.Exec(`replace into StockHourly (Symbol, DateTime, Current) values (?1, ?2, ?3)`,
+			_, err = api.db.Exec(`replace into StockHourly (Symbol, DateTime, Current, FetchedDateTime) values (?1, ?2, ?3, ?4)`,
 				quote.Symbol,
 				currHour.Format(time.RFC3339),
 				quote.Price.FloatString(2),
+				time.Now().In(LocNY),
 			)
 			if err != nil {
 				panic(err)
