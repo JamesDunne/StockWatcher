@@ -42,18 +42,8 @@ func fetchLatest(api *stocks.API, symbols ...string) {
 
 	for _, symbol := range symbols {
 		// Record trading history:
-		log.Printf("%s: recording historical data...\n", symbol)
-		err := api.RecordHistory(symbol)
-		if err != nil {
-			panic(err)
-		}
-
-		// Calculate and record statistics:
-		log.Printf("%s: calculating statistics...\n", symbol)
-		err = api.RecordStats(symbol)
-		if err != nil {
-			panic(err)
-		}
+		log.Printf("%s: recording historical data and calculating statistics...\n", symbol)
+		api.RecordHistory(symbol)
 	}
 
 	// Fetch current prices from Yahoo into the database:
@@ -327,6 +317,14 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 			err = api.AddStock(s)
 			if err != nil {
 				panic(err)
+			}
+
+			// Check if we have to delete history:
+			minBuyDate := api.GetMinBuyDate(s.Symbol)
+			if minBuyDate.Valid && s.BuyDate.Value.Before(minBuyDate.Value) {
+				// Introducing earlier BuyDates screws up the TradeDayIndex values.
+				// TODO(jsd): We could probably fix this better by simply reindexing the TradeDayIndex values and filling in the holes.
+				api.DeleteHistory(s.Symbol)
 			}
 
 			// Fetch latest data for new symbol:

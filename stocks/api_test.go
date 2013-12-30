@@ -167,40 +167,14 @@ func TestGetAllTrackedSymbols(t *testing.T) {
 func TestRecordHistory(t *testing.T) {
 	for _, symbol := range symbols {
 		fmt.Printf("recording history for %s...\n", symbol)
-		err := api.RecordHistory(symbol)
-		if err != nil {
-			t.Fatal(err)
-		}
+		api.RecordHistory(symbol)
 	}
 }
 
 func TestRecordHistory2(t *testing.T) {
 	for _, symbol := range symbols {
 		fmt.Printf("recording history for %s...\n", symbol)
-		err := api.RecordHistory(symbol)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-func TestRecordStats(t *testing.T) {
-	for _, symbol := range symbols {
-		fmt.Printf("recording stats for %s...\n", symbol)
-		err := api.RecordStats(symbol)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-func TestRecordStats2(t *testing.T) {
-	for _, symbol := range symbols {
-		fmt.Printf("recording stats for %s...\n", symbol)
-		err := api.RecordStats(symbol)
-		if err != nil {
-			t.Fatal(err)
-		}
+		api.RecordHistory(symbol)
 	}
 }
 

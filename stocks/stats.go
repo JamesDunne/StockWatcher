@@ -13,47 +13,68 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+// Get the earliest buy date for a symbol.
+func (api *API) GetMinBuyDate(symbol string) NullDateTime {
+	// Find earliest date of interest for history:
+	row := struct {
+		Min sql.NullString `db:"Min"`
+	}{}
+	err := api.db.Get(&row, `select min(datetime(BuyDate)) as Min from Stock where Symbol = ?1`, symbol)
+	if err != nil {
+		panic(err)
+	}
+
+	return fromDbNullDateTime(sqliteFmt, row.Min)
+}
+
+// Deletes all historical and statistical data for a symbol.
+func (api *API) DeleteHistory(symbol string) {
+	err := api.tx(func(tx *sqlx.Tx) (err error) {
+		_, err = api.db.Exec(`delete from StockHistory where Symbol = ?1`, symbol)
+		if err != nil {
+			return err
+		}
+		_, err = api.db.Exec(`delete from StockStats where Symbol = ?1`, symbol)
+		if err != nil {
+			return err
+		}
+		return
+	})
+	if err != nil {
+		panic(err)
+	}
+}
+
 // Fetches historical data from Yahoo Finance into the database.
-func (api *API) RecordHistory(symbol string) (err error) {
-	var lastDate time.Time
+func (api *API) RecordHistory(symbol string) {
+	var startDate time.Time
 
 	// Fetch earliest date of interest for symbol:
 	lastDateTime, lastTradeDay, err := api.GetLastTradeDay(symbol)
 	if err != nil {
-		// Find earliest date of interest for history:
-		row := struct {
-			Min sql.NullString `db:"Min"`
-		}{}
-		err := api.db.Get(&row, `select min(datetime(BuyDate)) as Min from Stock where Symbol = ?1`, symbol)
-		if err != nil {
-			return err
-		}
-
-		minDate := fromDbNullDateTime(sqliteFmt, row.Min)
+		minDate := api.GetMinBuyDate(symbol)
 		if !minDate.Valid {
-			lastDate = api.lastTradingDate
+			startDate = api.lastTradingDate
 		} else {
-			lastDate = minDate.Value
+			startDate = minDate.Value
 		}
 
 		// Take it back at least 42 weeks to get the 200-day moving average:
-		lastDate = lastDate.Add(time.Duration(-42*7*24) * time.Hour)
+		startDate = startDate.Add(time.Duration(-42*7*24) * time.Hour)
 		lastTradeDay = 0
 	} else {
-		lastDate = lastDateTime.Value
+		startDate = lastDateTime.Value
 	}
 
 	// Do we need to fetch history?
-	if !lastDate.Before(api.lastTradingDate) {
-		return nil
+	if !startDate.Before(api.lastTradingDate) {
+		return
 	}
 
-	// TODO: this will fail if a buyDate is introduced earlier than recorded history.
-
 	// Fetch the historical data:
-	hist, err := yql.GetHistory(symbol, lastDate, api.lastTradingDate)
+	hist, err := yql.GetHistory(symbol, startDate, api.lastTradingDate)
 	if err != nil {
-		return err
+		panic(err)
 	}
 
 	// Bulk insert the historical data into the StockHistory table:
@@ -62,11 +83,11 @@ func (api *API) RecordHistory(symbol string) (err error) {
 		// Store dates as RFC3339 in the NYC timezone:
 		date, err := time.ParseInLocation(dateFmt, h.Date, LocNY)
 		if err != nil {
-			return err
+			panic(err)
 		}
 
 		// Only record dates after last-fetched dates:
-		if date.After(time.Time(lastDate)) {
+		if date.After(time.Time(startDate)) {
 			rows = append(rows, []interface{}{
 				symbol,
 				date.Format(time.RFC3339),
@@ -83,17 +104,12 @@ func (api *API) RecordHistory(symbol string) (err error) {
 	if len(rows) > 0 {
 		err = api.bulkInsert("StockHistory", []string{"Symbol", "Date", "TradeDayIndex", "Closing", "Opening", "High", "Low", "Volume"}, rows)
 		if err != nil {
-			return
+			panic(err)
 		}
 	}
 
-	return
-}
-
-// Calculates per-day trends and records them to the database.
-func (api *API) RecordStats(symbol string) (err error) {
-	err = api.tx(func(tx *sqlx.Tx) (err error) {
-		_, err = api.db.Exec(`
+	// Calculates per-day trends and records them to the database.
+	_, err = api.db.Exec(`
 replace into StockStats (Symbol, Date, TradeDayIndex, Avg200Day, Avg50Day, SMAPercent)
 select Symbol, Date, TradeDayIndex, Avg200, Avg50, ((Avg50 / Avg200) - 1) * 100 as SMAPercent
 from (
@@ -104,8 +120,9 @@ from (
 	where (h.Symbol = ?1)
 	  and (h.TradeDayIndex > 200)
 )`, symbol)
-		return
-	})
+	if err != nil {
+		panic(err)
+	}
 	return
 }
 
