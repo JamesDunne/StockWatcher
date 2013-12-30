@@ -25,7 +25,8 @@ import (
 // Our own packages:
 import (
 	"github.com/JamesDunne/StockWatcher/mailutil"
-	//"github.com/JamesDunne/StockWatcher/stocksAPI"
+	//"github.com/JamesDunne/StockWatcher/stocks"
+	"github.com/JamesDunne/go-fsnotify"
 )
 
 // Where to serve static files from:
@@ -76,12 +77,50 @@ func main() {
 	mailutil.Server = *mailServerArg
 
 	// Parse template files:
-	ui, err := template.New("ui").ParseGlob(path.Join(fsRoot, "templates", "*.tmpl"))
+	tmplPath := path.Join(fsRoot, "templates")
+	ui, err := template.New("ui").ParseGlob(path.Join(tmplPath, "*.tmpl"))
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
 	uiTmpl = ui
+
+	// Watch template directory for file changes:
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		panic(err)
+	}
+	defer func() { watcher.RemoveWatch(tmplPath); watcher.Close() }()
+
+	// Process watcher events
+	go func() {
+		for {
+			select {
+			case ev := <-watcher.Event:
+				if ev == nil {
+					break
+				}
+				//log.Println("event:", ev)
+
+				// Update templates:
+				var err error
+				ui, err := template.New("ui").ParseGlob(path.Join(tmplPath, "*.tmpl"))
+				if err != nil {
+					log.Println(err)
+					break
+				}
+				uiTmpl = ui
+			case err := <-watcher.Error:
+				if err == nil {
+					break
+				}
+				log.Println("watcher error:", err)
+			}
+		}
+	}()
+
+	// Watch template file for changes:
+	watcher.Watch(tmplPath)
 
 	// Create the socket to listen on:
 	l, err := net.Listen(*socketType, *socketAddr)

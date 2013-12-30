@@ -1,0 +1,9 @@
+{{/* T-Stop notification: */}}
+{{define "tstop/subject"}}{{.Stock.Symbol}} price {{.CurrPrice}} fell below T-Stop {{.Detail.TStopPrice}}{{end}}
+{{define "tstop/body"}}<html>
+<body>{{.Stock.Symbol}} price {{.CurrPrice}} fell below T-Stop {{.Detail.TStopPrice}}</body>
+</html>{{end}}
+
+{{/* Buy Stop notification: */}}
+{{define "buystop/subject"}}{{.Stock.Symbol}}{{end}}
+{{define "buystop/body"}}{{.Stock.Symbol}}{{end}}
