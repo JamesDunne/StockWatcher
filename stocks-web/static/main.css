@@ -14,12 +14,13 @@ h1, h2, h3, h4, h5, h6 {
 
 table.data {
 	border: 0px solid;
-	border-spacing: 2px;
+	border-spacing: 0px;
 	border-collapse: separate;
 }
 
 table.data th, table.data td {
-	padding: 2px;
+    margin: 0px;
+	padding: 4px 8px 4px 8px;
 	white-space: nowrap;
 }
 

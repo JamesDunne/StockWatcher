@@ -81,12 +81,12 @@ func checkTStop(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
 	if !sd.Stock.NotifyTStop || !sd.Stock.TStopPercent.Valid {
 		return
 	}
-	if !sd.CurrPrice.Valid || !sd.Detail.TStopPrice.Valid {
+	if !sd.Detail.CurrPrice.Valid || !sd.Detail.TStopPrice.Valid {
 		return
 	}
 
 	// Check if (price < t-stop):
-	if sd.CurrPrice.Value.Cmp(sd.Detail.TStopPrice.Value) > 0 {
+	if sd.Detail.CurrPrice.Value.Cmp(sd.Detail.TStopPrice.Value) > 0 {
 		return
 	}
 
@@ -98,12 +98,12 @@ func checkBuyStop(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
 	if !sd.Stock.NotifyBuyStop || !sd.Stock.BuyStopPrice.Valid {
 		return
 	}
-	if !sd.CurrPrice.Valid {
+	if !sd.Detail.CurrPrice.Valid {
 		return
 	}
 
 	// Check if (price < buy-stop):
-	if sd.CurrPrice.Value.Cmp(sd.Stock.BuyStopPrice.Value) > 0 {
+	if sd.Detail.CurrPrice.Value.Cmp(sd.Stock.BuyStopPrice.Value) > 0 {
 		return
 	}
 
@@ -115,12 +115,12 @@ func checkSellStop(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
 	if !sd.Stock.NotifySellStop || !sd.Stock.SellStopPrice.Valid {
 		return
 	}
-	if !sd.CurrPrice.Valid {
+	if !sd.Detail.CurrPrice.Valid {
 		return
 	}
 
 	// Check if (price > sell-stop):
-	if sd.CurrPrice.Value.Cmp(sd.Stock.SellStopPrice.Value) < 0 {
+	if sd.Detail.CurrPrice.Value.Cmp(sd.Stock.SellStopPrice.Value) < 0 {
 		return
 	}
 
@@ -131,12 +131,12 @@ func checkRise(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
 	if !sd.Stock.NotifyRise || !sd.Stock.RisePercent.Valid {
 		return
 	}
-	if !sd.CurrPrice.Valid || !sd.Detail.N1ClosePrice.Valid {
+	if !sd.Detail.CurrPrice.Valid || !sd.Detail.N1ClosePrice.Valid {
 		return
 	}
 
 	// chg% = ((CurrPrice / N1ClosePrice) - 1) * 100
-	chg := ((stocks.RatToFloat(sd.CurrPrice.Value) / stocks.RatToFloat(sd.Detail.N1ClosePrice.Value)) - 1.0) * 100.0
+	chg := ((stocks.RatToFloat(sd.Detail.CurrPrice.Value) / stocks.RatToFloat(sd.Detail.N1ClosePrice.Value)) - 1.0) * 100.0
 	if chg < stocks.RatToFloat(sd.Stock.RisePercent.Value) {
 		return
 	}
@@ -148,12 +148,12 @@ func checkFall(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
 	if !sd.Stock.NotifyFall || !sd.Stock.FallPercent.Valid {
 		return
 	}
-	if !sd.CurrPrice.Valid || !sd.Detail.N1ClosePrice.Valid {
+	if !sd.Detail.CurrPrice.Valid || !sd.Detail.N1ClosePrice.Valid {
 		return
 	}
 
 	// chg% = ((CurrPrice / N1ClosePrice) - 1) * 100
-	chg := ((stocks.RatToFloat(sd.CurrPrice.Value) / stocks.RatToFloat(sd.Detail.N1ClosePrice.Value)) - 1.0) * 100.0
+	chg := ((stocks.RatToFloat(sd.Detail.CurrPrice.Value) / stocks.RatToFloat(sd.Detail.N1ClosePrice.Value)) - 1.0) * 100.0
 	if chg > -stocks.RatToFloat(sd.Stock.FallPercent.Value) {
 		return
 	}
@@ -196,8 +196,6 @@ func main() {
 
 	// Parse email template file:
 	emailTemplate = template.Must(template.New("email").ParseFiles(tmplPath))
-	//fmt.Println("subject: ", textTemplateString(emailTemplate, "tstop/subject", nil))
-	//fmt.Println("body:    ", textTemplateString(emailTemplate, "tstop/body", nil))
 
 	// Create the API context which initializes the database:
 	api, err := stocks.NewAPI(dbPath)
@@ -271,14 +269,6 @@ func main() {
 		}
 	}
 
-	// Get today's date in NY time:
-	//today, lastTradeDate := api.Today(), api.LastTradingDate()
-	//if stocks.IsWeekend(today) {
-	//	// We don't work on weekends.
-	//	log.Printf("No work to do on weekends.")
-	//	return
-	//}
-
 	// Query stocks:
 	symbols, err := api.GetAllTrackedSymbols()
 	if err != nil {
@@ -322,8 +312,8 @@ func main() {
 			} else {
 				log.Printf("    %s watching from %s on %s:\n", user.Name, s.BuyPrice, s.BuyDate.DateString())
 			}
-			if sd.CurrPrice.Valid {
-				log.Printf("    current: %v\n", sd.CurrPrice)
+			if sd.Detail.CurrPrice.Valid {
+				log.Printf("    current: %v\n", sd.Detail.CurrPrice)
 			}
 			if d.TStopPrice.Valid {
 				log.Printf("    t-stop:  %v\n", d.TStopPrice)
@@ -358,6 +348,8 @@ func main() {
 			checkBullBear(api, user, &sd)
 		}
 	}
+
+	log.Println("Job complete")
 
 	return
 }

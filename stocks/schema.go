@@ -149,7 +149,7 @@ join StockStats s on s.Symbol = h.Symbol and s.TradeDayIndex = h.TradeDayIndex`,
 create view if not exists StockDetail
 as
 select s.StockID, `+stockColsS+`
-     , h.Current as CurrPrice, h.DateTime as CurrHour
+     , h.Current as CurrPrice, h.DateTime as CurrHour, h.FetchedDateTime
      , n1.CloseDate as N1CloseDate, n1.ClosePrice as N1ClosePrice, n1.SMAPercent as N1SMAPercent, n1.Avg200Day as N1Avg200Day, n1.Avg50Day as N1Avg50Day
      , n2.CloseDate as N2CloseDate, n2.ClosePrice as N2ClosePrice, n2.SMAPercent as N2SMAPercent
      , e.LowestClose, e.HighestClose

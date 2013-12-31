@@ -44,6 +44,10 @@ type Stock struct {
 }
 
 type Detail struct {
+	CurrPrice       NullDecimal
+	CurrHour        NullDateTime
+	FetchedDateTime NullDateTime
+
 	N1CloseDate  NullDateTime
 	N1ClosePrice NullDecimal
 	N1SMAPercent NullFloat64
@@ -54,11 +58,15 @@ type Detail struct {
 	N2ClosePrice NullDecimal
 	N2SMAPercent NullFloat64
 
-	// Calculated:
-
 	TStopPrice      NullDecimal
 	GainLossPercent NullFloat64
 	GainLossDollar  NullDecimal
+}
+
+// A stock with calculated stats:
+type StockDetail struct {
+	Stock  Stock
+	Detail Detail
 }
 
 type dbStock struct {
@@ -89,22 +97,14 @@ type dbStock struct {
 	LastTimeBullBear sql.NullString `db:"LastTimeBullBear"`
 }
 
-// A stock with calculated stats:
-type StockDetail struct {
-	Stock  Stock
-	Detail Detail
-
-	CurrHour  NullDateTime
-	CurrPrice NullDecimal
-}
-
 // DB representation of a stock with calculated stats:
 type dbDetail struct {
 	// Include all fields from dbStock:
 	dbStock
 
-	CurrPrice sql.NullString `db:"CurrPrice"`
-	CurrHour  sql.NullString `db:"CurrHour"`
+	CurrPrice       sql.NullString `db:"CurrPrice"`
+	CurrHour        sql.NullString `db:"CurrHour"`
+	FetchedDateTime sql.NullString `db:"FetchedDateTime"`
 
 	N1CloseDate  sql.NullString  `db:"N1CloseDate"`
 	N1ClosePrice sql.NullString  `db:"N1ClosePrice"`
@@ -305,6 +305,10 @@ func projectDetails(rows []dbDetail) (details []StockDetail, err error) {
 		}
 
 		d := &Detail{
+			CurrPrice:       fromDbNullDecimal(r.CurrPrice),
+			CurrHour:        fromDbNullDateTime(time.RFC3339, r.CurrHour),
+			FetchedDateTime: fromDbNullDateTime(time.RFC3339, r.FetchedDateTime),
+
 			N1CloseDate:  fromDbNullDateTime(time.RFC3339, r.N1CloseDate),
 			N1ClosePrice: fromDbNullDecimal(r.N1ClosePrice),
 			N1SMAPercent: fromDbNullFloat64(r.N1SMAPercent),
@@ -362,10 +366,8 @@ func projectDetails(rows []dbDetail) (details []StockDetail, err error) {
 		}
 
 		sd := StockDetail{
-			Stock:     *s,
-			Detail:    *d,
-			CurrPrice: fromDbNullDecimal(r.CurrPrice),
-			CurrHour:  fromDbNullDateTime(time.RFC3339, r.CurrHour),
+			Stock:  *s,
+			Detail: *d,
 		}
 
 		// Add to list:
@@ -380,7 +382,7 @@ func (api *API) GetStockDetailsForUser(userID UserID) (details []StockDetail, er
 
 	err = api.db.Select(&rows, `
 select StockID, `+stockCols+`
-     , CurrPrice, CurrHour
+     , CurrPrice, CurrHour, FetchedDateTime
      , N1CloseDate, N1ClosePrice, N1SMAPercent, N1Avg200Day, N1Avg50Day
      , N2CloseDate, N2ClosePrice, N2SMAPercent
      , LowestClose, HighestClose
@@ -401,7 +403,7 @@ func (api *API) GetStockDetailsForSymbol(symbol string) (details []StockDetail, 
 
 	err = api.db.Select(&rows, `
 select StockID, `+stockCols+`
-     , CurrPrice, CurrHour
+     , CurrPrice, CurrHour, FetchedDateTime
      , N1CloseDate, N1ClosePrice, N1SMAPercent, N1Avg200Day, N1Avg50Day
      , N2CloseDate, N2ClosePrice, N2SMAPercent
      , LowestClose, HighestClose

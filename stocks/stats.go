@@ -188,7 +188,7 @@ func (api *API) GetCurrentHourlyPrices(symbols ...string) (prices map[string]*bi
 				quote.Symbol,
 				currHour.Format(time.RFC3339),
 				quote.Price.FloatString(2),
-				time.Now().In(LocNY),
+				time.Now().In(LocNY).Format(time.RFC3339),
 			)
 			if err != nil {
 				panic(err)

@@ -46,18 +46,14 @@ function removeStock(id) {
 						<th class="entered">Buy Date</th>
 						<th class="entered">Buy Price</th>
 						<th class="entered">Shares</th>
-						<th class="calced">50/200 SMA %</th>
-						<th class="calced">Gain/Loss %</th>
-						<th class="calced">Gain/Loss $</th>
-						<th class="calced">Recent Time</th>
-						<th class="calced">Recent Price</th>
+						<th class="calced">Time</th>
+						<th class="calced">Price</th>
 						<th class="calced">T-Stop Price</th>
-						<th class="entered">T-Stop %</th>
-						<th class="entered">Buy Stop</th>
-						<th class="entered">Sell Stop</th>
-						<th class="entered">Rise %</th>
-						<th class="entered">Fall %</th>
-						<th class="entered">Notify on bearish/bullish</th>
+						<th class="calced">Close Date</th>
+						<th class="calced">Close Price</th>
+						<th class="calced">50/200 SMA %</th>
+						<th class="calced">Gain %</th>
+						<th class="calced">Gain $</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -68,18 +64,14 @@ function removeStock(id) {
 						<td class="entered right">{{.Stock.BuyDate.Format "2006-01-02"}}</td>
 						<td class="entered right">{{.Stock.BuyPrice}}</td>
 						<td class="entered right">{{.Stock.Shares}}</td>
-						<td class="calced right">{{.Detail.N1SMAPercent}}</td>
-						<td class="calced right">{{.Detail.GainLossPercent}}</td>
-						<td class="calced right">{{.Detail.GainLossDollar}}</td>
-						<td class="calced right">{{.CurrHour.Format "2006-01-02 15:04"}}</td>
-						<td class="calced right">{{.CurrPrice}}</td>
+						<td class="calced right">{{.Detail.FetchedDateTime.Format "15:04"}}</td>
+						<td class="calced right">{{.Detail.CurrPrice}}</td>
 						<td class="calced right">{{.Detail.TStopPrice}}</td>
-						<td class="entered right">{{.Stock.TStopPercent}}</td>
-						<td class="entered right">{{.Stock.BuyStopPrice}}</td>
-						<td class="entered right">{{.Stock.SellStopPrice}}</td>
-						<td class="entered right">{{.Stock.RisePercent}}</td>
-						<td class="entered right">{{.Stock.FallPercent}}</td>
-						<td class="entered center"><input type="checkbox" class="readonly" {{if .Stock.NotifyBullBear}}checked="checked"{{end}} disabled="disabled" /></td>
+						<td class="calced right">{{.Detail.N1CloseDate.Format "2006-01-02"}}</td>
+						<td class="calced right">{{.Detail.N1ClosePrice}}</td>
+						<td class="calced right">{{.Detail.N1SMAPercent}}%</td>
+						<td class="calced right">{{.Detail.GainLossPercent}}%</td>
+						<td class="calced right">{{.Detail.GainLossDollar}}</td>
 					</tr>
 					{{end}}
 				</tbody>

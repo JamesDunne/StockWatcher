@@ -2,13 +2,15 @@
 
 <html>
   <head>
-    <title>Login</title>
-    <script>
-    function setId(id) {
-      document.forms[0].id.value = id;
-      document.forms[0].submit();
-      return false;
-    }
+    <title>Stocks - Login</title>
+
+	<link type="text/css" rel="stylesheet" href="/static/main.css" />
+    <script type="text/javascript">
+function setId(id) {
+    document.forms[0].id.value = id;
+    document.forms[0].submit();
+    return false;
+}
     </script>
   </head>
   <body>
@@ -21,20 +23,14 @@
     <h2>Sign in with:</h2>
     <ul>
       <li>
-        <button onclick="return setId('https://www.google.com/accounts/o8/id')">
-          Google
-        </button>
+        <button onclick="return setId('https://www.google.com/accounts/o8/id')">Google</button>
       </li>
       <li>
-        <button onclick="return setId('https://me.yahoo.com')">
-          Yahoo!
-        </button>
+        <button onclick="return setId('https://me.yahoo.com')">Yahoo!</button>
       </li>
       <li>
         <input type="text" id="idfield">
-        <button onclick="return setId(document.getElementById('idfield').value);">
-          Go
-        </button>
+        <button onclick="return setId(document.getElementById('idfield').value);">Go</button>
       </li>
     </ul>
   </body>
