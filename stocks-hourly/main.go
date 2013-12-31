@@ -36,8 +36,49 @@ func textTemplateString(tmpl *template.Template, name string, obj interface{}) s
 	return w.String()
 }
 
+func attemptEmailUser(api *stocks.API, user *stocks.User, sd *stocks.StockDetail, lastDeliveryTime *stocks.NullDateTime, templateName string) bool {
+	// Determine next available delivery time:
+	nextDeliveryTime := time.Now()
+	if (*lastDeliveryTime).Valid {
+		nextDeliveryTime = (*lastDeliveryTime).Value.Add(user.NotificationTimeout)
+	}
+
+	// Can we deliver?
+	if (*lastDeliveryTime).Valid && !time.Now().After(nextDeliveryTime) {
+		log.Printf("  Not delivering notification email due to anti-spam timeout; next delivery after %s\n", nextDeliveryTime.Format(time.RFC3339))
+		return false
+	}
+
+	log.Printf("  Delivering notification email to %s <%s>...\n", user.Name, user.PrimaryEmail())
+
+	// Format mail addresses:
+	from := mail.Address{"stock-watcher-" + sd.Stock.Symbol, "stock.watcher." + sd.Stock.Symbol + "@bittwiddlers.org"}
+	to := mail.Address{user.Name, user.PrimaryEmail()}
+
+	// Execute email template to get subject and body:
+	subject := textTemplateString(emailTemplate, templateName+"/subject", sd)
+	body := textTemplateString(emailTemplate, templateName+"/body", sd)
+
+	// Deliver email:
+	if err := mailutil.SendHtmlMessage(from, to, subject, body); err != nil {
+		log.Println(err)
+		log.Printf("  Failed delivering notification email.\n")
+		return false
+	} else {
+		log.Printf("  Delivered notification email.\n")
+
+		// Successfully delivered email as far as we know; record last delivery date/time:
+		*lastDeliveryTime = stocks.NullDateTime{Value: time.Now(), Valid: true}
+		api.UpdateNotifyTimes(&sd.Stock)
+		return true
+	}
+}
+
+// Notifications:
+
+// Trailing Stop
 func checkTStop(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
-	if !sd.Stock.NotifyTStop {
+	if !sd.Stock.NotifyTStop || !sd.Stock.TStopPercent.Valid {
 		return
 	}
 	if !sd.CurrPrice.Valid || !sd.Detail.TStopPrice.Valid {
@@ -49,42 +90,90 @@ func checkTStop(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
 		return
 	}
 
-	// Current price has fallen below trailing-stop price!
-	log.Println()
-	log.Println("  ALERT: Current price has fallen below trailing-stop price!")
+	attemptEmailUser(api, user, sd, &sd.Stock.LastTimeTStop, "tstop")
+}
 
-	// Determine next available delivery time:
-	nextDeliveryTime := time.Now()
-	if sd.Stock.LastTimeTStop.Valid {
-		nextDeliveryTime = sd.Stock.LastTimeTStop.Value.Add(user.NotificationTimeout)
+// Buy Stop
+func checkBuyStop(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
+	if !sd.Stock.NotifyBuyStop || !sd.Stock.BuyStopPrice.Valid {
+		return
 	}
-
-	// Can we deliver?
-	if sd.Stock.LastTimeTStop.Valid && !time.Now().After(nextDeliveryTime) {
-		log.Printf("  Not delivering notification email due to anti-spam timeout; next delivery after %s\n", nextDeliveryTime.Format(time.RFC3339))
+	if !sd.CurrPrice.Valid {
 		return
 	}
 
-	log.Printf("  Delivering notification email to %s <%s>...\n", user.Name, user.PrimaryEmail())
+	// Check if (price < buy-stop):
+	if sd.CurrPrice.Value.Cmp(sd.Stock.BuyStopPrice.Value) > 0 {
+		return
+	}
 
-	// Format mail addresses:
-	from := mail.Address{"stock-watcher-" + sd.Stock.Symbol, "stock.watcher." + sd.Stock.Symbol + "@bittwiddlers.org"}
-	to := mail.Address{user.Name, user.PrimaryEmail()}
+	attemptEmailUser(api, user, sd, &sd.Stock.LastTimeBuyStop, "buystop")
+}
 
-	// Execute email template to get subject and body:
-	subject := textTemplateString(emailTemplate, "tstop/subject", sd)
-	body := textTemplateString(emailTemplate, "tstop/body", sd)
+// Sell Stop
+func checkSellStop(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
+	if !sd.Stock.NotifySellStop || !sd.Stock.SellStopPrice.Valid {
+		return
+	}
+	if !sd.CurrPrice.Valid {
+		return
+	}
 
-	// Deliver email:
-	if err := mailutil.SendHtmlMessage(from, to, subject, body); err != nil {
-		log.Println(err)
-		log.Printf("  Failed delivering notification email.\n")
-	} else {
-		log.Printf("  Delivered notification email.\n")
+	// Check if (price > sell-stop):
+	if sd.CurrPrice.Value.Cmp(sd.Stock.SellStopPrice.Value) < 0 {
+		return
+	}
 
-		// Successfully delivered email as far as we know; record last delivery date/time:
-		sd.Stock.LastTimeTStop = stocks.NullDateTime{Value: time.Now(), Valid: true}
-		api.UpdateNotifyTimes(&sd.Stock)
+	attemptEmailUser(api, user, sd, &sd.Stock.LastTimeSellStop, "sellstop")
+}
+
+func checkRise(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
+	if !sd.Stock.NotifyRise || !sd.Stock.RisePercent.Valid {
+		return
+	}
+	if !sd.CurrPrice.Valid || !sd.Detail.N1ClosePrice.Valid {
+		return
+	}
+
+	// chg% = ((CurrPrice / N1ClosePrice) - 1) * 100
+	chg := ((stocks.RatToFloat(sd.CurrPrice.Value) / stocks.RatToFloat(sd.Detail.N1ClosePrice.Value)) - 1.0) * 100.0
+	if chg < stocks.RatToFloat(sd.Stock.RisePercent.Value) {
+		return
+	}
+
+	attemptEmailUser(api, user, sd, &sd.Stock.LastTimeRise, "rise")
+}
+
+func checkFall(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
+	if !sd.Stock.NotifyFall || !sd.Stock.FallPercent.Valid {
+		return
+	}
+	if !sd.CurrPrice.Valid || !sd.Detail.N1ClosePrice.Valid {
+		return
+	}
+
+	// chg% = ((CurrPrice / N1ClosePrice) - 1) * 100
+	chg := ((stocks.RatToFloat(sd.CurrPrice.Value) / stocks.RatToFloat(sd.Detail.N1ClosePrice.Value)) - 1.0) * 100.0
+	if chg > -stocks.RatToFloat(sd.Stock.FallPercent.Value) {
+		return
+	}
+
+	attemptEmailUser(api, user, sd, &sd.Stock.LastTimeFall, "fall")
+}
+
+func checkBullBear(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
+	if !sd.Stock.NotifyBullBear {
+		return
+	}
+	if !sd.Detail.N1SMAPercent.Valid || !sd.Detail.N2SMAPercent.Valid {
+		return
+	}
+
+	// TODO: verify this logic.
+	if sd.Detail.N2SMAPercent.Value < 0.0 && sd.Detail.N1SMAPercent.Value >= 0.0 {
+		attemptEmailUser(api, user, sd, &sd.Stock.LastTimeBullBear, "bull")
+	} else if sd.Detail.N2SMAPercent.Value >= 0.0 && sd.Detail.N1SMAPercent.Value < 0.0 {
+		attemptEmailUser(api, user, sd, &sd.Stock.LastTimeBullBear, "bear")
 	}
 }
 
@@ -228,7 +317,11 @@ func main() {
 			}
 
 			log.Printf("  %s\n", symbol)
-			log.Printf("    %s bought %d shares at %s on %s:\n", user.Name, s.Shares, s.BuyPrice, s.BuyDate.DateString())
+			if !sd.Stock.IsWatched {
+				log.Printf("    %s bought %d shares at %s on %s:\n", user.Name, s.Shares, s.BuyPrice, s.BuyDate.DateString())
+			} else {
+				log.Printf("    %s watching from %s on %s:\n", user.Name, s.BuyPrice, s.BuyDate.DateString())
+			}
 			if sd.CurrPrice.Valid {
 				log.Printf("    current: %v\n", sd.CurrPrice)
 			}
@@ -242,9 +335,27 @@ func main() {
 				log.Printf("    gain(%%): %v\n", d.GainLossPercent)
 			}
 
+			// Check notifications:
+			log.Println()
+
+			// Current price has fallen below trailing-stop price!
+			log.Println("  Checking trailing stop...")
 			checkTStop(api, user, &sd)
 
-			// TODO: check hard buy stop and sell stops.
+			log.Println("  Checking buy stop...")
+			checkBuyStop(api, user, &sd)
+
+			log.Println("  Checking sell stop...")
+			checkSellStop(api, user, &sd)
+
+			log.Println("  Checking rise by %...")
+			checkRise(api, user, &sd)
+
+			log.Println("  Checking fall by %...")
+			checkFall(api, user, &sd)
+
+			log.Println("  Checking SMA for bullish/bearish...")
+			checkBullBear(api, user, &sd)
 		}
 	}
 

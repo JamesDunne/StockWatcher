@@ -44,11 +44,19 @@ type Stock struct {
 }
 
 type Detail struct {
-	LastCloseDate   NullDateTime
+	N1CloseDate  NullDateTime
+	N1ClosePrice NullDecimal
+	N1SMAPercent NullFloat64
+	N1Avg200Day  NullFloat64
+	N1Avg50Day   NullFloat64
+
+	N2CloseDate  NullDateTime
+	N2ClosePrice NullDecimal
+	N2SMAPercent NullFloat64
+
+	// Calculated:
+
 	TStopPrice      NullDecimal
-	Avg200Day       NullFloat64
-	Avg50Day        NullFloat64
-	SMAPercent      NullFloat64
 	GainLossPercent NullFloat64
 	GainLossDollar  NullDecimal
 }
@@ -95,17 +103,19 @@ type dbDetail struct {
 	// Include all fields from dbStock:
 	dbStock
 
-	StockHourlyID sql.NullInt64  `db:"StockHourlyID"`
-	CurrPrice     sql.NullString `db:"CurrPrice"`
-	CurrHour      sql.NullString `db:"CurrHour"`
+	CurrPrice sql.NullString `db:"CurrPrice"`
+	CurrHour  sql.NullString `db:"CurrHour"`
 
-	StockStatsID  sql.NullInt64   `db:"StockStatsID"`
-	LastTradeDate sql.NullString  `db:"LastTradeDate"`
-	Avg200Day     sql.NullFloat64 `db:"Avg200Day"`
-	Avg50Day      sql.NullFloat64 `db:"Avg50Day"`
-	SMAPercent    sql.NullFloat64 `db:"SMAPercent"`
+	N1CloseDate  sql.NullString  `db:"N1CloseDate"`
+	N1ClosePrice sql.NullString  `db:"N1ClosePrice"`
+	N1SMAPercent sql.NullFloat64 `db:"N1SMAPercent"`
+	N1Avg200Day  sql.NullFloat64 `db:"N1Avg200Day"`
+	N1Avg50Day   sql.NullFloat64 `db:"N1Avg50Day"`
 
-	StockCloseID sql.NullInt64   `db:"StockCloseID"`
+	N2CloseDate  sql.NullString  `db:"N2CloseDate"`
+	N2ClosePrice sql.NullString  `db:"N2ClosePrice"`
+	N2SMAPercent sql.NullFloat64 `db:"N2SMAPercent"`
+
 	HighestClose sql.NullFloat64 `db:"HighestClose"`
 	LowestClose  sql.NullFloat64 `db:"LowestClose"`
 }
@@ -295,12 +305,17 @@ func projectDetails(rows []dbDetail) (details []StockDetail, err error) {
 		}
 
 		d := &Detail{
-			LastCloseDate: fromDbNullDateTime(time.RFC3339, r.LastTradeDate),
-			//TStopPrice
+			N1CloseDate:  fromDbNullDateTime(time.RFC3339, r.N1CloseDate),
+			N1ClosePrice: fromDbNullDecimal(r.N1ClosePrice),
+			N1SMAPercent: fromDbNullFloat64(r.N1SMAPercent),
+			N1Avg200Day:  fromDbNullFloat64(r.N1Avg200Day),
+			N1Avg50Day:   fromDbNullFloat64(r.N1Avg50Day),
 
-			Avg200Day:  fromDbNullFloat64(r.Avg200Day),
-			Avg50Day:   fromDbNullFloat64(r.Avg50Day),
-			SMAPercent: fromDbNullFloat64(r.SMAPercent),
+			N2CloseDate:  fromDbNullDateTime(time.RFC3339, r.N2CloseDate),
+			N2ClosePrice: fromDbNullDecimal(r.N2ClosePrice),
+			N2SMAPercent: fromDbNullFloat64(r.N2SMAPercent),
+
+			// TStopPrice
 			// GainLossPercent
 			// GainLossDollar
 		}
@@ -308,8 +323,8 @@ func projectDetails(rows []dbDetail) (details []StockDetail, err error) {
 		currPrice := fromDbNullDecimal(r.CurrPrice)
 		buyPriceFlt := RatToFloat(s.BuyPrice.Value)
 
-		if s.Shares > 0 {
-			// Owned:
+		if s.Shares >= 0 {
+			// Owned (or watched):
 
 			if s.TStopPercent.Valid && r.HighestClose.Valid {
 				// ((100 - stopPercent) * 0.01) * highestClose
@@ -344,11 +359,6 @@ func projectDetails(rows []dbDetail) (details []StockDetail, err error) {
 				d.GainLossPercent = NullFloat64{Valid: false}
 				d.GainLossDollar = NullDecimal{Valid: false}
 			}
-		} else {
-			// Shares = 0; watched stock.
-			d.TStopPrice = NullDecimal{Valid: false}
-			d.GainLossPercent = NullFloat64{Valid: false}
-			d.GainLossDollar = NullDecimal{Valid: false}
 		}
 
 		sd := StockDetail{
@@ -370,9 +380,10 @@ func (api *API) GetStockDetailsForUser(userID UserID) (details []StockDetail, er
 
 	err = api.db.Select(&rows, `
 select StockID, `+stockCols+`
-     , StockHourlyID, CurrPrice, CurrHour
-     , StockStatsID, LastTradeDate, Avg200Day, Avg50Day, SMAPercent
-     , StockCloseID, LowestClose, HighestClose
+     , CurrPrice, CurrHour
+     , N1CloseDate, N1ClosePrice, N1SMAPercent, N1Avg200Day, N1Avg50Day
+     , N2CloseDate, N2ClosePrice, N2SMAPercent
+     , LowestClose, HighestClose
 from StockDetail s
 where (s.UserID = ?1)
   and (datetime(s.CurrHour) = (select max(datetime(h.DateTime)) from StockHourly h where h.Symbol = s.Symbol))
@@ -390,9 +401,10 @@ func (api *API) GetStockDetailsForSymbol(symbol string) (details []StockDetail, 
 
 	err = api.db.Select(&rows, `
 select StockID, `+stockCols+`
-     , StockHourlyID, CurrPrice, CurrHour
-     , StockStatsID, LastTradeDate, Avg200Day, Avg50Day, SMAPercent
-     , StockCloseID, LowestClose, HighestClose
+     , CurrPrice, CurrHour
+     , N1CloseDate, N1ClosePrice, N1SMAPercent, N1Avg200Day, N1Avg50Day
+     , N2CloseDate, N2ClosePrice, N2SMAPercent
+     , LowestClose, HighestClose
 from StockDetail s
 where (s.Symbol = ?1)
   and (datetime(s.CurrHour) = (select max(datetime(h.DateTime)) from StockHourly h where h.Symbol = s.Symbol))

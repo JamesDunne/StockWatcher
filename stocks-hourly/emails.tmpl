@@ -1,9 +1,29 @@
-{{/* T-Stop notification: */}}
+{{/* Trailing Stop notification: */}}
 {{define "tstop/subject"}}{{.Stock.Symbol}} price {{.CurrPrice}} fell below T-Stop {{.Detail.TStopPrice}}{{end}}
 {{define "tstop/body"}}<html>
 <body>{{.Stock.Symbol}} price {{.CurrPrice}} fell below T-Stop {{.Detail.TStopPrice}}</body>
 </html>{{end}}
 
 {{/* Buy Stop notification: */}}
-{{define "buystop/subject"}}{{.Stock.Symbol}}{{end}}
-{{define "buystop/body"}}{{.Stock.Symbol}}{{end}}
+{{define "buystop/subject"}}{{.Stock.Symbol}} price {{.CurrPrice}} fell below Buy Stop {{.Stock.BuyStopPrice}}{{end}}
+{{define "buystop/body"}}{{.Stock.Symbol}} price {{.CurrPrice}} fell below Buy Stop {{.Stock.BuyStopPrice}}{{end}}
+
+{{/* Sell Stop notification: */}}
+{{define "sellstop/subject"}}{{.Stock.Symbol}} price {{.CurrPrice}} rose above Sell Stop {{.Stock.SellStopPrice}}{{end}}
+{{define "sellstop/body"}}{{.Stock.Symbol}} price {{.CurrPrice}} rose above Sell Stop {{.Stock.SellStopPrice}}{{end}}
+
+{{/* Rise by % notification: */}}
+{{define "rise/subject"}}{{.Stock.Symbol}} rose by at least {{.Stock.RisePercent}}%{{end}}
+{{define "rise/body"}}{{.Stock.Symbol}} rose by at least {{.Stock.RisePercent}}%{{end}}
+
+{{/* Fall by % notification: */}}
+{{define "fall/subject"}}{{.Stock.Symbol}} fell by at least {{.Stock.FallPercent}}%{{end}}
+{{define "fall/body"}}{{.Stock.Symbol}} fell by at least {{.Stock.FallPercent}}%{{end}}
+
+{{/* Bullish notification: */}}
+{{define "bull/subject"}}{{.Stock.Symbol}} went bullish according to SMA{{end}}
+{{define "bull/body"}}{{.Stock.Symbol}} went bullish according to SMA{{end}}
+
+{{/* Bearish notification: */}}
+{{define "bear/subject"}}{{.Stock.Symbol}} went bearish according to SMA{{end}}
+{{define "bear/body"}}{{.Stock.Symbol}} went bearish according to SMA{{end}}

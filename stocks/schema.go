@@ -134,18 +134,29 @@ create index if not exists IX_Stock on Stock (
 
 	// Create VIEWs:
 	api.ddl(
+		// StockHistoryStats
+		`drop view if exists StockHistoryStats`,
+		`
+create view if not exists StockHistoryStats
+as
+select h.Symbol, h.Date as CloseDate, h.TradeDayIndex, h.Closing as ClosePrice
+     , s.Avg200Day, s.Avg50Day, s.SMAPercent
+from StockHistory h
+join StockStats s on s.Symbol = h.Symbol and s.TradeDayIndex = h.TradeDayIndex`,
 		// StockDetail
 		`drop view if exists StockDetail`,
 		`
 create view if not exists StockDetail
 as
 select s.StockID, `+stockColsS+`
-     , h.rowid AS StockHourlyID, h.Current as CurrPrice, h.DateTime as CurrHour
-     , t.rowid AS StockStatsID, t.Date as LastTradeDate, t.Avg200Day, t.Avg50Day, t.SMAPercent
-     , e.StockID AS StockCloseID, e.LowestClose, e.HighestClose
+     , h.Current as CurrPrice, h.DateTime as CurrHour
+     , n1.CloseDate as N1CloseDate, n1.ClosePrice as N1ClosePrice, n1.SMAPercent as N1SMAPercent, n1.Avg200Day as N1Avg200Day, n1.Avg50Day as N1Avg50Day
+     , n2.CloseDate as N2CloseDate, n2.ClosePrice as N2ClosePrice, n2.SMAPercent as N2SMAPercent
+     , e.LowestClose, e.HighestClose
 from Stock s
 left join StockHourly h on h.Symbol = s.Symbol
-left join StockStats t on t.Symbol = h.Symbol and t.TradeDayIndex = (select max(TradeDayIndex) from StockHistory where Symbol = h.Symbol)
+left join StockHistoryStats n1 on n1.Symbol = h.Symbol and n1.TradeDayIndex = (select max(TradeDayIndex)-0 from StockHistory where Symbol = h.Symbol)
+left join StockHistoryStats n2 on n2.Symbol = h.Symbol and n2.TradeDayIndex = (select max(TradeDayIndex)-1 from StockHistory where Symbol = h.Symbol)
 left join (
 	-- Find lowest and highest closing price since buy date per symbol:
 	select s.StockID, h.Symbol
