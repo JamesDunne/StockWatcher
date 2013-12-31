@@ -6,6 +6,8 @@
 
 pushd stocks-hourly
 go install
+cp $GOPATH/bin/stocks-hourly /srv/bittwiddlers.org/stocks/
+cp emails.tmpl /srv/bittwiddlers.org/stocks/
 popd
 
 pushd stocks-web
@@ -19,7 +21,7 @@ cp -a static/* /srv/bittwiddlers.org/stocks/static/
 cp -a templates/* /srv/bittwiddlers.org/stocks/templates/
 
 sudo cp stocks-web.conf /etc/init/
-
+cp $GOPATH/bin/stocks-web /srv/bittwiddlers.org/stocks/
 popd
 
 # restart stocks-web service
