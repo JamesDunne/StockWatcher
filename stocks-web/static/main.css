@@ -15,6 +15,7 @@ table.data {
 
 table.data th, table.data td {
 	padding: 2px;
+	white-space: nowrap;
 }
 
 table.data th.entered {

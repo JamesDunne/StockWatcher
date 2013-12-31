@@ -36,35 +36,45 @@
 			<table class="data">
 				<thead>
 					<tr>
+						<th>Remove</th>
 						<th class="entered">Symbol</th>
 						<th class="entered">Buy Date</th>
 						<th class="entered">Buy Price</th>
 						<th class="entered">Shares</th>
-						<th class="entered">T-Stop %</th>
-						<th class="calced">T-Stop Price</th>
 						<th class="calced">50/200 SMA %</th>
-						<th class="calced">Recent Time</th>
-						<th class="calced">Recent Price</th>
 						<th class="calced">Gain/Loss %</th>
 						<th class="calced">Gain/Loss $</th>
-						<th>remove</th>
+						<th class="calced">Recent Time</th>
+						<th class="calced">Recent Price</th>
+						<th class="calced">T-Stop Price</th>
+						<th class="entered">T-Stop %</th>
+						<th class="entered">Buy Stop</th>
+						<th class="entered">Sell Stop</th>
+						<th class="entered">Rise %</th>
+						<th class="entered">Fall %</th>
+						<th class="entered">Notify on bearish/bullish</th>
 					</tr>
 				</thead>
 				<tbody>
 					{{range .}}
 					<tr>
+						<td><a href="javascript:removeStock({{.Stock.StockID}});">remove</a></td>
 						<td class="entered left"><a href="http://finviz.com/chart.ashx?t={{.Stock.Symbol}}&ty=c&ta=1&p=d&s=l" target="_blank">{{.Stock.Symbol}}</a></td>
 						<td class="entered right">{{.Stock.BuyDate.Format "2006-01-02"}}</td>
 						<td class="entered right">{{.Stock.BuyPrice}}</td>
 						<td class="entered right">{{.Stock.Shares}}</td>
-						<td class="entered right">{{.Stock.TStopPercent}}</td>
-						<td class="calced right">{{.Detail.TStopPrice}}</td>
 						<td class="calced right">{{.Detail.SMAPercent}}</td>
-						<td class="calced right">{{.CurrHour.Format "2006-01-02 15:04"}}</td>
-						<td class="calced right">{{.CurrPrice}}</td>
 						<td class="calced right">{{.Detail.GainLossPercent}}</td>
 						<td class="calced right">{{.Detail.GainLossDollar}}</td>
-						<td><a href="javascript:removeStock({{.Stock.StockID}});">remove</a></td>
+						<td class="calced right">{{.CurrHour.Format "2006-01-02 15:04"}}</td>
+						<td class="calced right">{{.CurrPrice}}</td>
+						<td class="calced right">{{.Detail.TStopPrice}}</td>
+						<td class="entered right">{{.Stock.TStopPercent}}</td>
+						<td class="entered right">{{.Stock.BuyStopPrice}}</td>
+						<td class="entered right">{{.Stock.SellStopPrice}}</td>
+						<td class="entered right">{{.Stock.RisePercent}}</td>
+						<td class="entered right">{{.Stock.FallPercent}}</td>
+						<td class="entered center"><input type="checkbox" class="readonly" {{if .Stock.NotifyBullBear}}checked="checked"{{end}} disabled="disabled" /></td>
 					</tr>
 					{{end}}
 				</tbody>

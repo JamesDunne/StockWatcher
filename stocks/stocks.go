@@ -183,6 +183,8 @@ func projectDetails(rows []dbDetail) (details []StockDetail, err error) {
 			TStopPercent:     fromDbNullDecimal(r.TStopPercent),
 			BuyStopPrice:     fromDbNullDecimal(r.BuyStopPrice),
 			SellStopPrice:    fromDbNullDecimal(r.SellStopPrice),
+			RisePercent:      fromDbNullDecimal(r.RisePercent),
+			FallPercent:      fromDbNullDecimal(r.FallPercent),
 			NotifyTStop:      fromDbBool(r.NotifyTStop),
 			NotifyBuyStop:    fromDbBool(r.NotifyBuyStop),
 			NotifySellStop:   fromDbBool(r.NotifySellStop),

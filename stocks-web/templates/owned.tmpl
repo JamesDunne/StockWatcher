@@ -15,7 +15,13 @@
 				<tr><td><label for="buyDate">Buy Date:</label></td><td><input type="text" id="buyDate" value="2013-09-04"></td></tr>
 				<tr><td><label for="buyPrice">Buy Price:</label></td><td><input type="text" id="buyPrice" value="30.00"></td></tr>
 				<tr><td><label for="shares">Shares:</label></td><td><input type="text" id="shares" value="20"></td></tr>
-				<tr><td><label for="stopPercent">T-Stop %:</label></td><td><input type="text" id="tstopPercent" value="25.00"></td></tr>
+				<tr><td colspan="2"><hr></td></tr>
+				<tr><td><label for="tstopPercent">T-Stop %:</label></td><td><input type="text" id="tstopPercent" value="20.00"></td></tr>
+				<tr><td><label for="buyStopPrice">Buy Stop Price:</label></td><td><input type="text" id="buyStopPrice" value=""></td></tr>
+				<tr><td><label for="sellStopPrice">Sell Stop Price:</label></td><td><input type="text" id="sellStopPrice" value=""></td></tr>
+				<tr><td><label for="risePercent">Rise %:</label></td><td><input type="text" id="risePercent" value=""></td></tr>
+				<tr><td><label for="fallPercent">Fall %:</label></td><td><input type="text" id="fallPercent" value=""></td></tr>
+				<tr><td><label for="notifyBullBear">Notify on bearish/bullish change:</label></td><td><input type="checkbox" id="notifyBullBear" value="true"></td></tr>
 				<tr><td colspan="2"><button id="btnAdd">Add</button></td></tr>
 			</tbody>
 		</table>
@@ -29,7 +35,14 @@
 				BuyDate: v("buyDate"),
 				BuyPrice: v("buyPrice"),
 				Shares: tryParseInt(v("shares")),
+				IsWatched: false,
+
 				TStopPercent: v("tstopPercent"),
+				BuyStopPrice: v("buyStopPrice"),
+				SellStopPrice: v("sellStopPrice"),
+				RisePercent: v("risePercent"),
+				FallPercent: v("fallPercent"),
+				NotifyBullBear: v("notifyBullBear")
 			};
 			postJson('/api/stock/add', st, function (rsp) { reload("/ui/dash"); }, function(rsp) { alert(rsp); });
 
