@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
@@ -96,6 +97,12 @@ func tryParseInt(s string, msg string) int64 {
 	return v
 }
 
+func toJSON(data interface{}) string {
+	bytes, err := json.Marshal(data)
+	panicIf(err)
+	return string(bytes)
+}
+
 // ----------------------- Secured section:
 
 const dateFmt = "2006-01-02"
@@ -170,9 +177,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			err = api.AddUser(apiuser)
-			if err != nil {
-				panic(err)
-			}
+			panicIf(err)
 
 			http.Redirect(w, r, "/ui/dash", http.StatusFound)
 		}
@@ -195,9 +200,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		err := uiTmpl.ExecuteTemplate(w, "dash", model)
-		if err != nil {
-			panic(err)
-		}
+		panicIf(err)
 		return
 
 	case "/fetch":
@@ -205,9 +208,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 
 		// Query stocks:
 		symbols, err := api.GetAllTrackedSymbols()
-		if err != nil {
-			panic(err)
-		}
+		panicIf(err)
 
 		fetchLatest(api, symbols...)
 
@@ -227,9 +228,7 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			err := uiTmpl.ExecuteTemplate(w, "owned/add", model)
-			if err != nil {
-				panic(err)
-			}
+			panicIf(err)
 			return
 		}
 
@@ -243,9 +242,41 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			err := uiTmpl.ExecuteTemplate(w, "watched/add", model)
-			if err != nil {
-				panic(err)
+			panicIf(err)
+			return
+		}
+
+	case "/stock/edit":
+		if r.Method == "GET" {
+			// Data to be used by the template:
+			id := r.URL.Query().Get("id")
+			st, err := api.GetStock(stocks.StockID(tryParseInt(id, "id query string parameter is required")))
+			panicIf(err)
+			if st == nil {
+				http.Error(w, "404 Not Found", http.StatusNotFound)
+				return
 			}
+			// Security check.
+			if st.UserID != apiuser.UserID {
+				http.Error(w, "404 Not Found", http.StatusNotFound)
+				return
+			}
+
+			model := struct {
+				User      *stocks.User
+				StockJSON string
+			}{
+				User:      apiuser,
+				StockJSON: toJSON(st),
+			}
+
+			// Render the appropriate html template:
+			if !st.IsWatched {
+				err = uiTmpl.ExecuteTemplate(w, "owned/edit", model)
+			} else {
+				err = uiTmpl.ExecuteTemplate(w, "watched/edit", model)
+			}
+			panicIf(err)
 			return
 		}
 	}

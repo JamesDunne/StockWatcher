@@ -253,6 +253,79 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 
 			rsp = "ok"
 
+		case "/stock/update":
+			// Update stock.
+
+			// Parse body as JSON:
+			tmp := struct {
+				StockID   int64
+				Symbol    string
+				BuyDate   string
+				BuyPrice  string
+				Shares    int64
+				IsWatched bool
+
+				TStopPercent string
+				NotifyTStop  bool
+
+				BuyStopPrice  string
+				NotifyBuyStop bool
+
+				SellStopPrice  string
+				NotifySellStop bool
+
+				RisePercent string
+				NotifyRise  bool
+
+				FallPercent string
+				NotifyFall  bool
+
+				NotifyBullBear bool
+			}{}
+			parsePostJson(r, &tmp)
+
+			// Validate settings and respond 400 if failed:
+			validate(tmp.BuyPrice != "", "BuyPrice required")
+
+			// Get stock from the database:
+			s, err := api.GetStock(stocks.StockID(tmp.StockID))
+			panicIf(err)
+
+			// 404 if wrong user attempts to update:
+			if s.UserID != apiuser.UserID {
+				rspcode = 404
+				rsperr = fmt.Errorf("Not Found")
+				return
+			}
+
+			// Convert JSON input into stock struct:
+			s.BuyPrice = stocks.ToDecimal(tmp.BuyPrice)
+			s.Shares = tmp.Shares
+			s.IsWatched = tmp.IsWatched
+
+			s.TStopPercent = stocks.ToNullDecimal(tmp.TStopPercent)
+			s.NotifyTStop = tmp.NotifyTStop
+
+			s.BuyStopPrice = stocks.ToNullDecimal(tmp.BuyStopPrice)
+			s.NotifyBuyStop = tmp.NotifyBuyStop
+
+			s.SellStopPrice = stocks.ToNullDecimal(tmp.SellStopPrice)
+			s.NotifySellStop = tmp.NotifySellStop
+
+			s.RisePercent = stocks.ToNullDecimal(tmp.RisePercent)
+			s.NotifyRise = tmp.NotifyRise
+
+			s.FallPercent = stocks.ToNullDecimal(tmp.FallPercent)
+			s.NotifyFall = tmp.NotifyFall
+
+			s.NotifyBullBear = tmp.NotifyBullBear
+
+			// Add the stock record:
+			err = api.UpdateStock(s)
+			panicIf(err)
+
+			rsp = "ok"
+
 		case "/stock/remove":
 			tmp := struct {
 				ID int64 `json:"id"`
@@ -260,6 +333,18 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 			parsePostJson(r, &tmp)
 
 			stockID := stocks.StockID(tmp.ID)
+
+			st, err := api.GetStock(stockID)
+			if st == nil {
+				rsp = "ok"
+				return
+			}
+
+			// Security check.
+			if st.UserID != apiuser.UserID {
+				http.Error(w, "404 Not Found", http.StatusNotFound)
+				return
+			}
 
 			err = api.RemoveStock(stockID)
 			panicIf(err)

@@ -161,6 +161,101 @@ insert into Stock (`+stockCols+`)
 	return nil
 }
 
+// Gets a stock by ID:
+func (api *API) GetStock(stockID StockID) (s *Stock, err error) {
+	r := dbStock{}
+	err = api.db.Get(&r, `select StockID,`+stockCols+` from Stock where StockID = ?1`, int64(stockID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+
+	s = &Stock{
+		StockID:   StockID(r.StockID),
+		UserID:    UserID(r.UserID),
+		Symbol:    r.Symbol,
+		BuyDate:   fromDbDateTime(dateFmt, r.BuyDate),
+		BuyPrice:  fromDbDecimal(r.BuyPrice),
+		Shares:    r.Shares,
+		IsWatched: fromDbBool(r.IsWatched),
+
+		TStopPercent:     fromDbNullDecimal(r.TStopPercent),
+		BuyStopPrice:     fromDbNullDecimal(r.BuyStopPrice),
+		SellStopPrice:    fromDbNullDecimal(r.SellStopPrice),
+		RisePercent:      fromDbNullDecimal(r.RisePercent),
+		FallPercent:      fromDbNullDecimal(r.FallPercent),
+		NotifyTStop:      fromDbBool(r.NotifyTStop),
+		NotifyBuyStop:    fromDbBool(r.NotifyBuyStop),
+		NotifySellStop:   fromDbBool(r.NotifySellStop),
+		NotifyRise:       fromDbBool(r.NotifyRise),
+		NotifyFall:       fromDbBool(r.NotifyFall),
+		NotifyBullBear:   fromDbBool(r.NotifyBullBear),
+		LastTimeTStop:    fromDbNullDateTime(time.RFC3339, r.LastTimeTStop),
+		LastTimeBuyStop:  fromDbNullDateTime(time.RFC3339, r.LastTimeBuyStop),
+		LastTimeSellStop: fromDbNullDateTime(time.RFC3339, r.LastTimeSellStop),
+		LastTimeRise:     fromDbNullDateTime(time.RFC3339, r.LastTimeRise),
+		LastTimeFall:     fromDbNullDateTime(time.RFC3339, r.LastTimeFall),
+		LastTimeBullBear: fromDbNullDateTime(time.RFC3339, r.LastTimeBullBear),
+	}
+
+	return
+}
+
+// Only updates notify flag columns:
+func (api *API) UpdateStock(n *Stock) (err error) {
+	_, err = api.db.Exec(`
+update Stock
+set TStopPercent = ?2,
+    BuyStopPrice = ?3,
+    SellStopPrice = ?4,
+    RisePercent = ?5,
+    FallPercent = ?6,
+    NotifyTStop = ?7,
+    NotifyBuyStop = ?8,
+    NotifySellStop = ?9,
+    NotifyRise = ?10,
+    NotifyFall = ?11,
+    NotifyBullBear = ?12
+where StockID = ?1`,
+		int64(n.StockID),
+		toDbNullDecimal(n.TStopPercent, 2),
+		toDbNullDecimal(n.BuyStopPrice, 2),
+		toDbNullDecimal(n.SellStopPrice, 2),
+		toDbNullDecimal(n.RisePercent, 2),
+		toDbNullDecimal(n.FallPercent, 2),
+		toDbBool(n.NotifyTStop),
+		toDbBool(n.NotifyBuyStop),
+		toDbBool(n.NotifySellStop),
+		toDbBool(n.NotifyRise),
+		toDbBool(n.NotifyFall),
+		toDbBool(n.NotifyBullBear),
+	)
+	return
+}
+
+// Only updates last notification times:
+func (api *API) UpdateNotifyTimes(n *Stock) (err error) {
+	_, err = api.db.Exec(`
+update Stock
+set LastTimeTStop = ?2,
+    LastTimeBuyStop = ?3,
+	LastTimeSellStop = ?4,
+	LastTimeRise = ?5,
+	LastTimeFall = ?6,
+	LastTimeBullBear = ?7
+where StockID = ?1`,
+		int64(n.StockID),
+		toDbNullDateTime(time.RFC3339, n.LastTimeTStop),
+		toDbNullDateTime(time.RFC3339, n.LastTimeBuyStop),
+		toDbNullDateTime(time.RFC3339, n.LastTimeSellStop),
+		toDbNullDateTime(time.RFC3339, n.LastTimeRise),
+		toDbNullDateTime(time.RFC3339, n.LastTimeFall),
+		toDbNullDateTime(time.RFC3339, n.LastTimeBullBear),
+	)
+	return
+}
+
 // Removes a stock:
 func (api *API) RemoveStock(stockID StockID) (err error) {
 	_, err = api.db.Exec(`delete from Stock where StockID = ?1`, int64(stockID))
@@ -307,49 +402,5 @@ order by s.Symbol ASC, s.BuyDate ASC, s.Shares ASC`, symbol)
 	}
 
 	details, err = projectDetails(rows)
-	return
-}
-
-// Only updates notify flag columns:
-func (api *API) UpdateNotifyFlags(n *Stock) (err error) {
-	_, err = api.db.Exec(`
-update Stock
-set NotifyTStop = ?2,
-    NotifyBuyStop = ?3,
-    NotifySellStop = ?4,
-    NotifyRise = ?5,
-    NotifyFall = ?6,
-    NotifyBullBear = ?7
-where StockID = ?1`,
-		int64(n.StockID),
-		toDbBool(n.NotifyTStop),
-		toDbBool(n.NotifyBuyStop),
-		toDbBool(n.NotifySellStop),
-		toDbBool(n.NotifyRise),
-		toDbBool(n.NotifyFall),
-		toDbBool(n.NotifyBullBear),
-	)
-	return
-}
-
-// Only updates last notification times:
-func (api *API) UpdateNotifyTimes(n *Stock) (err error) {
-	_, err = api.db.Exec(`
-update Stock
-set LastTimeTStop = ?2,
-    LastTimeBuyStop = ?3,
-	LastTimeSellStop = ?4,
-	LastTimeRise = ?5,
-	LastTimeFall = ?6,
-	LastTimeBullBear = ?7
-where StockID = ?1`,
-		int64(n.StockID),
-		toDbNullDateTime(time.RFC3339, n.LastTimeTStop),
-		toDbNullDateTime(time.RFC3339, n.LastTimeBuyStop),
-		toDbNullDateTime(time.RFC3339, n.LastTimeSellStop),
-		toDbNullDateTime(time.RFC3339, n.LastTimeRise),
-		toDbNullDateTime(time.RFC3339, n.LastTimeFall),
-		toDbNullDateTime(time.RFC3339, n.LastTimeBullBear),
-	)
 	return
 }

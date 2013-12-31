@@ -30,13 +30,18 @@
 			<a href="/ui/watched/add">add</a>
 		</div>
 	</div>
+	<script type="text/javascript">
+function removeStock(id) {
+	postJson('/api/stock/remove', {"id": id}, function (rsp) { reload(); }, standardJsonErrorHandler);
+}
+	</script>
 {{template "_tail"}}{{end}}
 
 {{define "table"}}
 			<table class="data">
 				<thead>
 					<tr>
-						<th>Remove</th>
+						<th>Actions</th>
 						<th class="entered">Symbol</th>
 						<th class="entered">Buy Date</th>
 						<th class="entered">Buy Price</th>
@@ -58,7 +63,7 @@
 				<tbody>
 					{{range .}}
 					<tr>
-						<td><a href="javascript:removeStock({{.Stock.StockID}});">remove</a></td>
+						<td><a href="javascript:removeStock({{.Stock.StockID}});">remove</a> | <a href="/ui/stock/edit?id={{.Stock.StockID}}">edit</a></td>
 						<td class="entered left"><a href="http://finviz.com/chart.ashx?t={{.Stock.Symbol}}&ty=c&ta=1&p=d&s=l" target="_blank">{{.Stock.Symbol}}</a></td>
 						<td class="entered right">{{.Stock.BuyDate.Format "2006-01-02"}}</td>
 						<td class="entered right">{{.Stock.BuyPrice}}</td>

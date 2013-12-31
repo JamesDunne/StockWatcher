@@ -10,6 +10,7 @@ import (
 
 type Decimal struct {
 	Value *big.Rat
+	// TODO: store precision here too.
 }
 
 func (d Decimal) String() string {
@@ -51,6 +52,7 @@ func ToDecimal(v string) Decimal {
 
 type NullDecimal struct {
 	Value *big.Rat
+	// TODO: store precision here too.
 	Valid bool
 }
 
@@ -113,6 +115,7 @@ func ToNullDecimal(v string) NullDecimal {
 
 type Float64 struct {
 	Value float64
+	// TODO: store precision here too.
 }
 
 func (d Float64) String() string {
@@ -142,6 +145,7 @@ func (d *Float64) UnmarshalJSON(data []byte) error {
 type NullFloat64 struct {
 	Value float64
 	Valid bool
+	// TODO: store precision here too.
 }
 
 func (d NullFloat64) String() string {
@@ -190,6 +194,7 @@ func ToNullFloat64(v string) NullFloat64 {
 
 type DateTime struct {
 	Value time.Time
+	// TODO: store format here too.
 }
 
 func (d DateTime) String() string {
@@ -226,6 +231,7 @@ func (d *DateTime) UnmarshalJSON(data []byte) error {
 
 type NullDateTime struct {
 	Value time.Time
+	// TODO: store format here too.
 	Valid bool
 }
 

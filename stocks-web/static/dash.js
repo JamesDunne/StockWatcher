@@ -1,11 +1,17 @@
 'use strict';
 
+var inits = [];
 var bindings = [];
 
 // Called before document ready to bind events:
 // sel = selector
 function bind(sel, ev, cb) {
 	bindings.push({sel: sel, ev: ev, cb: cb});
+}
+
+// Call the callback on document ready:
+function oninit(cb) {
+	inits.push(cb);
 }
 
 document.onreadystatechange = function () {
@@ -77,6 +83,10 @@ function setAttribute(el, prop, value) {
     el.setAttribute(prop, value);
     return el;
 }
+function removeAttribute(el, prop) {
+    el.removeAttribute(prop);
+    return el;
+}
 function setStyle(el, prop, value) {
     if (el.style.setProperty !== undefined)
         el.style.setProperty(prop, value);
@@ -109,6 +119,17 @@ function toggle(id) {
         hide(id);
         return false;
     }
+}
+
+function enable(id, enabled) {
+	var el = byid(id);
+	if (el === null) return;
+
+	if (enabled) {
+		removeAttribute(el, "disabled");
+	} else {
+		setAttribute(el, "disabled", "disabled");
+	}
 }
 
 // get or set value of `id` input element:
@@ -159,6 +180,12 @@ function tryParseInt(i) {
 
 // Document is ready:
 function init() {
+	for (var i = 0; i < inits.length; i++) {
+		var cb = inits[i];
+
+		cb();
+	}
+
 	// Apply event bindings to elements found by selector:
 	for (var i = 0; i < bindings.length; i++) {
 		var b = bindings[i];
@@ -170,9 +197,6 @@ function init() {
 	}
 }
 
-
-// Application code:
-
-function removeStock(id) {
-	postJson('/api/stock/remove', {"id": id}, function (rsp) { reload(); }, function(rsp) { alert(rsp); });
+function standardJsonErrorHandler(rsp) {
+	alert(rsp.error);
 }

@@ -15,27 +15,172 @@
 				<tr><td><label for="buyDate">Buy Date:</label></td><td><input type="text" id="buyDate" value="2013-09-04"></td></tr>
 				<tr><td><label for="buyPrice">Buy Price:</label></td><td><input type="text" id="buyPrice" value="30.00"></td></tr>
 				<tr><td><label for="shares">Shares:</label></td><td><input type="text" id="shares" value="20"></td></tr>
-				<tr><td colspan="2"></td></tr>
-				<tr><td><label for="stopPercent">T-Stop Percent:</label></td><td><input type="text" id="tstopPercent" value="25.00"></td></tr>
-				<tr><td colspan="2"><button id="btnAdd">Add</button></td></tr>
+				<tr><td colspan="2"><hr><h2>Features:</h2></td></tr>
+				<tr><td><label for="tstopPercent">T-Stop %:</label></td><td><input type="text" id="tstopPercent" value="20.00"></td></tr>
+				<tr><td><label for="buyStopPrice">Buy Stop Price:</label></td><td><input type="text" id="buyStopPrice" value=""></td></tr>
+				<tr><td><label for="sellStopPrice">Sell Stop Price:</label></td><td><input type="text" id="sellStopPrice" value=""></td></tr>
+				<tr><td><label for="risePercent">Rise %:</label></td><td><input type="text" id="risePercent" value=""></td></tr>
+				<tr><td><label for="fallPercent">Fall %:</label></td><td><input type="text" id="fallPercent" value=""></td></tr>
+				<tr><td><label for="notifyBullBear">Notify on bearish/bullish change:</label></td><td><input type="checkbox" id="notifyBullBear" value="true"></td></tr>
+				<tr><td colspan="2"><button id="btnAdd">Add</button>&nbsp;<button id="btnCancel">Cancel</button></td></tr>
 			</tbody>
 		</table>
 	</div>
 	<script type="text/javascript">
-		bind("#btnAdd", "click", function(e) {
-			e.preventDefault();
+bind("#btnAdd", "click", function(e) {
+	e.preventDefault();
 
-			var st = {
-				Symbol: v("symbol"),
-				BuyDate: v("buyDate"),
-				BuyPrice: v("buyPrice"),
-				Shares: tryParseInt(v("shares")),
-				IsWatched: true,
-				TStopPercent: v("tstopPercent"),
-			};
-			postJson('/api/stock/add', st, function (rsp) { reload("/ui/dash"); }, function(rsp) { alert(rsp); });
+	var st = {
+		Symbol: v("symbol"),
+		BuyDate: v("buyDate"),
+		BuyPrice: v("buyPrice"),
+		Shares: 0,
+		IsWatched: true,
 
-			return false;
-		});
+		TStopPercent: v("tstopPercent"),
+		BuyStopPrice: v("buyStopPrice"),
+		SellStopPrice: v("sellStopPrice"),
+		RisePercent: v("risePercent"),
+		FallPercent: v("fallPercent"),
+		NotifyBullBear: v("notifyBullBear")
+	};
+	postJson('/api/stock/add', st, function (rsp) { reload("/ui/dash"); }, standardJsonErrorHandler);
+
+	return false;
+});
+
+bind("#btnCancel", "click", function(e) {
+	e.preventDefault();
+
+	reload("/ui/dash");
+
+	return false;
+});
+	</script>
+{{template "_tail"}}{{end}}
+
+
+{{define "watched/edit"}}{{template "_head"}}
+	<title>Stocks - Edit Watched Stock</title>
+	<script type="text/javascript" src="/static/dash.js"></script>
+{{template "_body"}}
+	<h1>Welcome, {{.User.Name}} &lt;{{.User.PrimaryEmail}}&gt;</h1>
+	<div>
+		Click <a href="/auth/logout">here</a> to log out.
+	</div>
+	<h2>Dashboard - Edit Watched Stock</h2>
+	<div>
+		<table>
+			<tbody>
+				<tr><td><label for="symbol">Symbol:</label></td><td colspan="2"><input type="text" id="symbol" value="" readonly></td></tr>
+				<tr><td><label for="buyDate">Buy Date:</label></td><td colspan="2"><input type="text" id="buyDate" value="" readonly></td></tr>
+				<tr><td><label for="buyPrice">Buy Price:</label></td><td colspan="2"><input type="text" id="buyPrice" value=""></td></tr>
+				<tr><td colspan="3"><hr><h2>Features:</h2></td></tr>
+				<tr><td><label for="tstopPercent">T-Stop %:</label></td>
+					<td><input type="text" id="tstopPercent" value=""></td>
+					<td><input type="checkbox" id="notifyTStop" value="true"></td>
+				</tr>
+				<tr><td><label for="buyStopPrice">Buy Stop Price:</label></td>
+					<td><input type="text" id="buyStopPrice" value=""></td>
+					<td><input type="checkbox" id="notifyBuyStop" value="true"></td>
+				</tr>
+				<tr><td><label for="sellStopPrice">Sell Stop Price:</label></td>
+					<td><input type="text" id="sellStopPrice" value=""></td>
+					<td><input type="checkbox" id="notifySellStop" value="true"></td>
+				</tr>
+				<tr><td><label for="risePercent">Rise %:</label></td>
+					<td><input type="text" id="risePercent" value=""></td>
+					<td><input type="checkbox" id="notifyRise" value="true"></td>
+				</tr>
+				<tr><td><label for="fallPercent">Fall %:</label></td>
+					<td><input type="text" id="fallPercent" value=""></td>
+					<td><input type="checkbox" id="notifyFall" value="true"></td>
+				</tr>
+				<tr><td><label for="notifyBullBear">Notify on bearish/bullish change:</label></td>
+					<td></td>
+					<td><input type="checkbox" id="notifyBullBear" value="true"></td>
+				</tr>
+				<tr><td></td>
+					<td colspan="2"><button id="btnUpdate">Update</button>&nbsp;<button id="btnCancel">Cancel</button></td>
+				</tr>
+			</tbody>
+		</table>
+	</div>
+	<script type="text/javascript">
+var model = JSON.parse({{.StockJSON}});
+
+oninit(function(){
+	// Populate DOM with model values:
+	v("symbol", model.Symbol);
+	v("buyDate", model.BuyDate);
+	v("buyPrice", model.BuyPrice);
+
+	// Features:
+	v("tstopPercent", model.TStopPercent);
+	v("notifyTStop", model.NotifyTStop);
+	enable("tstopPercent", model.NotifyTStop);
+
+	v("buyStopPrice", model.BuyStopPrice);
+	v("notifyBuyStop", model.NotifyBuyStop);
+	enable("buyStopPrice", model.NotifyBuyStop);
+
+	v("sellStopPrice", model.SellStopPrice);
+	v("notifySellStop", model.NotifySellStop);
+	enable("sellStopPrice", model.NotifySellStop);
+
+	v("risePercent", model.RisePercent);
+	v("notifyRise", model.NotifyRise);
+	enable("risePercent", model.NotifyRise);
+
+	v("fallPercent", model.FallPercent);
+	v("notifyFall", model.NotifyFall);
+	enable("fallPercent", model.NotifyFall);
+
+	v("notifyBullBear", model.NotifyBullBear);
+});
+
+// Main buttons:
+bind("#btnUpdate", "click", function(e) {
+	e.preventDefault();
+
+	// Bind DOM state back to model:
+	model.BuyPrice = v("buyPrice");
+
+	model.NotifyTStop = v("notifyTStop");
+	model.TStopPercent = v("tstopPercent");
+
+	model.NotifyBuyStop = v("notifyBuyStop");
+	model.BuyStopPrice = v("buyStopPrice");
+
+	model.NotifySellStop = v("notifySellStop");
+	model.SellStopPrice = v("sellStopPrice");
+
+	model.NotifyRise = v("notifyRise");
+	model.RisePercent = v("risePercent");
+
+	model.NotifyFall = v("notifyFall");
+	model.FallPercent = v("fallPercent");
+
+	model.NotifyBullBear = v("notifyBullBear");
+
+	postJson("/api/stock/update", model, function(rsp) { reload("/ui/dash"); }, standardJsonErrorHandler);
+
+	return false;
+});
+
+bind("#btnCancel", "click", function(e) {
+	e.preventDefault();
+
+	reload("/ui/dash");
+
+	return false;
+});
+
+// Checkbox toggles:
+bind("#notifyTStop", "click", function(e) { var enabled = v("notifyTStop"); enable("tstopPercent", enabled); });
+bind("#notifyBuyStop", "click", function(e) { var enabled = v("notifyBuyStop"); enable("buyStopPrice", enabled); });
+bind("#notifySellStop", "click", function(e) { var enabled = v("notifySellStop"); enable("sellStopPrice", enabled); });
+bind("#notifyRise", "click", function(e) { var enabled = v("notifyRise"); enable("risePercent", enabled); });
+bind("#notifyFall", "click", function(e) { var enabled = v("notifyFall"); enable("fallPercent", enabled); });
 	</script>
 {{template "_tail"}}{{end}}
