@@ -65,7 +65,7 @@ func fetchLatest(api *stocks.API, symbols ...string) {
 
 	// Fetch current prices from Yahoo into the database:
 	log.Printf("Fetching current prices...\n")
-	api.GetCurrentHourlyPrices(symbols...)
+	api.GetCurrentHourlyPrices(true, symbols...)
 }
 
 func notEmpty(s string, err string) string {
@@ -222,14 +222,16 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			// Data to be used by the template:
 			model := struct {
-				User  *stocks.User
-				Today time.Time
+				User      *stocks.User
+				Today     time.Time
+				IsWatched bool
 			}{
-				User:  apiuser,
-				Today: time.Now(),
+				User:      apiuser,
+				Today:     time.Now(),
+				IsWatched: false,
 			}
 
-			err := uiTmpl.ExecuteTemplate(w, "owned/add", model)
+			err := uiTmpl.ExecuteTemplate(w, "add", model)
 			panicIf(err)
 			return
 		}
@@ -238,17 +240,21 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			// Data to be used by the template:
 			model := struct {
-				User  *stocks.User
-				Today time.Time
+				User      *stocks.User
+				Today     time.Time
+				IsWatched bool
 			}{
-				User:  apiuser,
-				Today: time.Now(),
+				User:      apiuser,
+				Today:     time.Now(),
+				IsWatched: true,
 			}
 
-			err := uiTmpl.ExecuteTemplate(w, "watched/add", model)
+			err := uiTmpl.ExecuteTemplate(w, "add", model)
 			panicIf(err)
 			return
 		}
+
+		// -------------------------------------------------
 
 	case "/stock/edit":
 		if r.Method == "GET" {
@@ -269,17 +275,15 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 			model := struct {
 				User      *stocks.User
 				StockJSON string
+				IsWatched bool
 			}{
 				User:      apiuser,
 				StockJSON: toJSON(st),
+				IsWatched: st.IsWatched,
 			}
 
 			// Render the appropriate html template:
-			if !st.IsWatched {
-				err = uiTmpl.ExecuteTemplate(w, "owned/edit", model)
-			} else {
-				err = uiTmpl.ExecuteTemplate(w, "watched/edit", model)
-			}
+			err = uiTmpl.ExecuteTemplate(w, "edit", model)
 			panicIf(err)
 			return
 		}

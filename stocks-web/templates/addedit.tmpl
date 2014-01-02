@@ -1,32 +1,53 @@
 
-{{define "owned/add"}}{{template "_head"}}
-	<title>Stocks - Add Owned Stock</title>
+{{define "add"}}{{template "_head"}}
+	<title>Stocks - Add {{if not .IsWatched}}Owned{{else}}Watched{{end}} Stock</title>
 	<script type="text/javascript" src="/static/dash.js"></script>
 {{template "_body"}}
 	<h1>Welcome, {{.User.Name}} &lt;{{.User.PrimaryEmail}}&gt;</h1>
 	<div>
 		Click <a href="/auth/logout">here</a> to log out.
 	</div>
-	<h2>Dashboard - Add Owned Stock</h2>
+	<h2>Dashboard - Add {{if not .IsWatched}}Owned{{else}}Watched{{end}} Stock</h2>
 	<div>
 		<table>
 			<tbody>
-				<tr><td><label for="symbol">Symbol:</label></td><td><input type="text" id="symbol" placeholder="MSFT"></td></tr>
-				<tr><td><label for="buyDate">Buy Date:</label></td><td><input type="text" id="buyDate" placeholder="2013-09-04" value="{{.Today.Format "2006-01-02"}}"></td></tr>
-				<tr><td><label for="buyPrice">Buy Price:</label></td><td><input type="text" id="buyPrice" placeholder="30.00"></td></tr>
-				<tr><td><label for="shares">Shares:</label></td><td><input type="text" id="shares" placeholder="20"></td></tr>
-				<tr><td colspan="2"><hr><h2>Features:</h2></td></tr>
-				<tr><td><label for="tstopPercent">T-Stop %:</label></td><td><input type="text" id="tstopPercent" placeholder="20.00"></td></tr>
-				<tr><td><label for="buyStopPrice">Buy Stop Price:</label></td><td><input type="text" id="buyStopPrice" placeholder="30.00"></td></tr>
-				<tr><td><label for="sellStopPrice">Sell Stop Price:</label></td><td><input type="text" id="sellStopPrice" placeholder="40.00"></td></tr>
-				<tr><td><label for="risePercent">Rise %:</label></td><td><input type="text" id="risePercent" placeholder="5.00"></td></tr>
-				<tr><td><label for="fallPercent">Fall %:</label></td><td><input type="text" id="fallPercent" placeholder="5.00"></td></tr>
-				<tr><td><label for="notifyBullBear">Notify on bearish/bullish change:</label></td><td><input type="checkbox" id="notifyBullBear" value="true"></td></tr>
+				<tr><td><label for="symbol">Symbol:</label></td><td colspan="2"><input type="text" id="symbol" placeholder="MSFT">&nbsp;<button id="btnCheck">Check</button></td></tr>
+				<tr><td><label for="buyDate">Buy Date:</label></td><td colspan="2"><input type="text" id="buyDate" placeholder="{{.Today.Format "2006-01-02"}}" value="{{.Today.Format "2006-01-02"}}"></td></tr>
+				<tr><td><label for="buyPrice">Buy Price:</label></td><td colspan="2"><input type="text" id="buyPrice" placeholder="30.00" value=""></td></tr>
+{{if not .IsWatched}}
+				<tr><td><label for="shares">Shares:</label></td><td colspan="2"><input type="text" id="shares" value=""></td></tr>
+{{end}}
+				<tr><td colspan="3"><hr><h2>Features:</h2></td></tr>
+				<tr><td><label for="tstopPercent">T-Stop %:</label></td>
+					<td><input type="text" id="tstopPercent" value="" disabled="disabled"></td>
+					<td><input type="checkbox" id="notifyTStop" value="true"></td>
+				</tr>
+				<tr><td><label for="buyStopPrice">Buy Stop Price:</label></td>
+					<td><input type="text" id="buyStopPrice" value="" disabled="disabled"></td>
+					<td><input type="checkbox" id="notifyBuyStop" value="true"></td>
+				</tr>
+				<tr><td><label for="sellStopPrice">Sell Stop Price:</label></td>
+					<td><input type="text" id="sellStopPrice" value="" disabled="disabled"></td>
+					<td><input type="checkbox" id="notifySellStop" value="true"></td>
+				</tr>
+				<tr><td><label for="risePercent">Rise %:</label></td>
+					<td><input type="text" id="risePercent" value="" disabled="disabled"></td>
+					<td><input type="checkbox" id="notifyRise" value="true"></td>
+				</tr>
+				<tr><td><label for="fallPercent">Fall %:</label></td>
+					<td><input type="text" id="fallPercent" value="" disabled="disabled"></td>
+					<td><input type="checkbox" id="notifyFall" value="true"></td>
+				</tr>
+				<tr><td><label for="notifyBullBear">Notify on bearish/bullish change:</label></td>
+					<td></td>
+					<td><input type="checkbox" id="notifyBullBear" value="true"></td>
+				</tr>
 				<tr><td colspan="2"><button id="btnAdd">Add</button>&nbsp;<button id="btnCancel">Cancel</button></td></tr>
 			</tbody>
 		</table>
 	</div>
 	<script type="text/javascript">
+// Main buttons:
 bind("#btnAdd", "click", function(e) {
 	e.preventDefault();
 
@@ -34,14 +55,29 @@ bind("#btnAdd", "click", function(e) {
 		Symbol: v("symbol"),
 		BuyDate: v("buyDate"),
 		BuyPrice: v("buyPrice"),
+{{if not .IsWatched}}
 		Shares: tryParseInt(v("shares")),
 		IsWatched: false,
+{{else}}
+		Shares: 0,
+		IsWatched: true,
+{{end}}
 
+		NotifyTStop: v("notifyTStop"),
 		TStopPercent: v("tstopPercent"),
+
+		NotifyBuyStop: v("notifyBuyStop"),
 		BuyStopPrice: v("buyStopPrice"),
+
+		NotifySellStop: v("notifySellStop"),
 		SellStopPrice: v("sellStopPrice"),
+
+		NotifyRise: v("notifyRise"),
 		RisePercent: v("risePercent"),
+
+		NotifyFall: v("notifyFall"),
 		FallPercent: v("fallPercent"),
+
 		NotifyBullBear: v("notifyBullBear")
 	};
 	postJson('/api/stock/add', st, function (rsp) { reload("/ui/dash"); }, standardJsonErrorHandler);
@@ -56,45 +92,72 @@ bind("#btnCancel", "click", function(e) {
 
 	return false;
 });
+
+// Check current price of stock and fill in "Buy Price":
+bind("#btnCheck", "click", function(e) {
+	e.preventDefault();
+
+	// Check the current price:
+	getJson('/api/stock/price?symbol=' + encodeURIComponent(v("symbol")),
+		function(rsp) {
+			// Fill in price and canonicalize the symbol:
+			v("buyPrice", rsp.result.Price);
+			v("symbol", rsp.result.Symbol);
+		},
+		standardJsonErrorHandler
+	);
+
+	return false;
+});
+
+// Checkbox toggles:
+bind("#notifyTStop", "click", function(e) { var enabled = v("notifyTStop"); enable("tstopPercent", enabled); });
+bind("#notifyBuyStop", "click", function(e) { var enabled = v("notifyBuyStop"); enable("buyStopPrice", enabled); });
+bind("#notifySellStop", "click", function(e) { var enabled = v("notifySellStop"); enable("sellStopPrice", enabled); });
+bind("#notifyRise", "click", function(e) { var enabled = v("notifyRise"); enable("risePercent", enabled); });
+bind("#notifyFall", "click", function(e) { var enabled = v("notifyFall"); enable("fallPercent", enabled); });
 	</script>
 {{template "_tail"}}{{end}}
 
 
-{{define "owned/edit"}}{{template "_head"}}
-	<title>Stocks - Edit Owned Stock</title>
+
+{{define "edit"}}{{template "_head"}}
+	<title>Stocks - Edit {{if not .IsWatched}}Owned{{else}}Watched{{end}} Stock</title>
 	<script type="text/javascript" src="/static/dash.js"></script>
 {{template "_body"}}
 	<h1>Welcome, {{.User.Name}} &lt;{{.User.PrimaryEmail}}&gt;</h1>
 	<div>
 		Click <a href="/auth/logout">here</a> to log out.
 	</div>
-	<h2>Dashboard - Edit Owned Stock</h2>
+	<h2>Dashboard - Edit {{if not .IsWatched}}Owned{{else}}Watched{{end}} Stock</h2>
 	<div>
 		<table>
 			<tbody>
 				<tr><td><label for="symbol">Symbol:</label></td><td colspan="2"><input type="text" id="symbol" value="" readonly></td></tr>
 				<tr><td><label for="buyDate">Buy Date:</label></td><td colspan="2"><input type="text" id="buyDate" value="" readonly></td></tr>
 				<tr><td><label for="buyPrice">Buy Price:</label></td><td colspan="2"><input type="text" id="buyPrice" value=""></td></tr>
+{{if not .IsWatched}}
 				<tr><td><label for="shares">Shares:</label></td><td colspan="2"><input type="text" id="shares" value=""></td></tr>
+{{end}}
 				<tr><td colspan="3"><hr><h2>Features:</h2></td></tr>
 				<tr><td><label for="tstopPercent">T-Stop %:</label></td>
-					<td><input type="text" id="tstopPercent" value=""></td>
+					<td><input type="text" id="tstopPercent" value="" disabled="disabled"></td>
 					<td><input type="checkbox" id="notifyTStop" value="true"></td>
 				</tr>
 				<tr><td><label for="buyStopPrice">Buy Stop Price:</label></td>
-					<td><input type="text" id="buyStopPrice" value=""></td>
+					<td><input type="text" id="buyStopPrice" value="" disabled="disabled"></td>
 					<td><input type="checkbox" id="notifyBuyStop" value="true"></td>
 				</tr>
 				<tr><td><label for="sellStopPrice">Sell Stop Price:</label></td>
-					<td><input type="text" id="sellStopPrice" value=""></td>
+					<td><input type="text" id="sellStopPrice" value="" disabled="disabled"></td>
 					<td><input type="checkbox" id="notifySellStop" value="true"></td>
 				</tr>
 				<tr><td><label for="risePercent">Rise %:</label></td>
-					<td><input type="text" id="risePercent" value=""></td>
+					<td><input type="text" id="risePercent" value="" disabled="disabled"></td>
 					<td><input type="checkbox" id="notifyRise" value="true"></td>
 				</tr>
 				<tr><td><label for="fallPercent">Fall %:</label></td>
-					<td><input type="text" id="fallPercent" value=""></td>
+					<td><input type="text" id="fallPercent" value="" disabled="disabled"></td>
 					<td><input type="checkbox" id="notifyFall" value="true"></td>
 				</tr>
 				<tr><td><label for="notifyBullBear">Notify on bearish/bullish change:</label></td>
@@ -115,7 +178,9 @@ oninit(function(){
 	v("symbol", model.Symbol);
 	v("buyDate", model.BuyDate);
 	v("buyPrice", model.BuyPrice);
+{{if not .IsWatched}}
 	v("shares", model.Shares);
+{{end}}
 
 	// Features:
 	v("tstopPercent", model.TStopPercent);
@@ -147,7 +212,9 @@ bind("#btnUpdate", "click", function(e) {
 
 	// Bind DOM state back to model:
 	model.BuyPrice = v("buyPrice");
+{{if not .IsWatched}}
 	model.Shares = tryParseInt(v("shares"));
+{{end}}
 
 	model.NotifyTStop = v("notifyTStop");
 	model.TStopPercent = v("tstopPercent");

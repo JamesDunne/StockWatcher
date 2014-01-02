@@ -226,7 +226,10 @@ set TStopPercent = ?2,
     NotifySellStop = ?9,
     NotifyRise = ?10,
     NotifyFall = ?11,
-    NotifyBullBear = ?12
+    NotifyBullBear = ?12,
+    BuyDate = ?13,
+    BuyPrice = ?14,
+    Shares = ?15
 where StockID = ?1`,
 		int64(n.StockID),
 		toDbNullDecimal(n.TStopPercent, 2),
@@ -240,6 +243,9 @@ where StockID = ?1`,
 		toDbBool(n.NotifyRise),
 		toDbBool(n.NotifyFall),
 		toDbBool(n.NotifyBullBear),
+		toDbDateTime(n.BuyDate),
+		toDbDecimal(n.BuyPrice, 2),
+		n.Shares,
 	)
 	return
 }

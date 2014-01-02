@@ -43,13 +43,13 @@ function removeStock(id) {
 					<tr>
 						<th>Actions</th>
 						<th class="entered">Symbol</th>
-						<th class="entered">Buy Date</th>
+						<th class="entered" title="EST">Buy Date</th>
 						<th class="entered">Buy Price</th>
 						<th class="entered">Shares</th>
-						<th class="calced">Time</th>
+						<th class="calced" title="EST">Time</th>
 						<th class="calced">Price</th>
 						<th class="calced">T-Stop Price</th>
-						<th class="calced">Close Date</th>
+						<th class="calced" title="EST">Close Date</th>
 						<th class="calced">Close Price</th>
 						<th class="calced">50/200 SMA %</th>
 						<th class="calced">Gain %</th>
@@ -61,13 +61,13 @@ function removeStock(id) {
 					<tr>
 						<td><a href="javascript:removeStock({{.Stock.StockID}});">remove</a> | <a href="/ui/stock/edit?id={{.Stock.StockID}}">edit</a></td>
 						<td class="entered left"><a href="http://finviz.com/chart.ashx?t={{.Stock.Symbol}}&ty=c&ta=1&p=d&s=l" target="_blank">{{.Stock.Symbol}}</a></td>
-						<td class="entered right">{{.Stock.BuyDate.Format "2006-01-02"}}</td>
+						<td class="entered right" title="EST">{{.Stock.BuyDate.Format "2006-01-02"}}</td>
 						<td class="entered right">{{.Stock.BuyPrice}}</td>
 						<td class="entered right">{{.Stock.Shares}}</td>
-						<td class="calced right">{{.Detail.FetchedDateTime.Format "15:04"}}</td>
+						<td class="calced right" title="EST">{{.Detail.FetchedDateTime.Format "15:04"}}</td>
 						<td class="calced right">{{.Detail.CurrPrice}}</td>
 						<td class="calced right">{{.Detail.TStopPrice}}</td>
-						<td class="calced right">{{.Detail.N1CloseDate.Format "2006-01-02"}}</td>
+						<td class="calced right" title="EST">{{.Detail.N1CloseDate.Format "2006-01-02"}}</td>
 						<td class="calced right">{{.Detail.N1ClosePrice}}</td>
 						<td class="calced right">{{.Detail.N1SMAPercent}}%</td>
 						<td class="calced right">{{.Detail.GainLossPercent}}%</td>

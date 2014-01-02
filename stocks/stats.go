@@ -2,7 +2,6 @@ package stocks
 
 // general stuff:
 import (
-	"math/big"
 	"time"
 )
 
@@ -126,53 +125,62 @@ from (
 	return
 }
 
+// Gets the current time truncated down 15 minutes:
+func truncTime(t time.Time) time.Time   { return t.Truncate(time.Minute * time.Duration(15)) }
+func (api *API) CurrentHour() time.Time { return truncTime(time.Now()) }
+
 // Checks if the current hourly price has been fetched from Yahoo or not and fetches it into the StockHourly table if needed.
-func (api *API) GetCurrentHourlyPrices(symbols ...string) (prices map[string]*big.Rat) {
+func (api *API) GetCurrentHourlyPrices(force bool, symbols ...string) (prices map[string]Decimal) {
 	currHour := api.CurrentHour()
 
 	toFetch := make([]string, 0, len(symbols))
-	prices = make(map[string]*big.Rat)
-	for _, symbol := range symbols {
-		row := struct {
-			Max sql.NullString `db:"Max"`
-		}{}
-		err := api.db.Get(&row, `select max(datetime(DateTime)) as Max from StockHourly where Symbol = ?1`, symbol)
-		if err != nil {
-			panic(err)
+	prices = make(map[string]Decimal)
+	if force {
+		// Forcefully fetch all symbols from Yahoo Finance:
+		for _, symbol := range symbols {
+			toFetch = append(toFetch, symbol)
 		}
-		lastTime := fromDbNullDateTime(sqliteFmt, row.Max)
-
-		// Determine if we need to fetch from Yahoo or not:
-		needFetch := false
-		if !lastTime.Valid {
-			needFetch = true
-		} else {
-			lastHour := time.Time(lastTime.Value).Truncate(time.Hour)
-			if lastHour.Before(currHour) {
-				needFetch = true
-			}
-		}
-
-		// TODO(jsd): could break this out to separate single query with IN clause
-		if !needFetch {
+	} else {
+		for _, symbol := range symbols {
 			row := struct {
-				Current sql.NullString `db:"Current"`
+				Max sql.NullString `db:"Max"`
 			}{}
-			err := api.db.Get(&row, `select Current from StockHourly where Symbol = ?1 and DateTime = ?2`, symbol, currHour.Format(time.RFC3339))
+			err := api.db.Get(&row, `select max(datetime(DateTime)) as Max from StockHourly where Symbol = ?1`, symbol)
 			if err != nil {
 				panic(err)
 			}
+			lastTime := fromDbNullDateTime(sqliteFmt, row.Max)
 
-			if row.Current.Valid {
-				prices[symbol] = ToRat(row.Current.String)
-				continue
-			} else {
+			// Determine if we need to fetch from Yahoo or not:
+			needFetch := false
+			if !lastTime.Valid {
 				needFetch = true
+			} else {
+				lastHour := truncTime(time.Time(lastTime.Value))
+				if lastHour.Before(currHour) {
+					needFetch = true
+				}
 			}
-		}
 
-		// Add it to the list of symbols to be fetched from Yahoo:
-		toFetch = append(toFetch, symbol)
+			// TODO(jsd): could break this out to separate single query with IN clause
+			if !needFetch {
+				row := struct {
+					Current sql.NullString `db:"Current"`
+				}{}
+				err := api.db.Get(&row, `select Current from StockHourly where Symbol = ?1 and DateTime = ?2`, symbol, currHour.Format(time.RFC3339))
+				if err != nil {
+					panic(err)
+				}
+
+				if row.Current.Valid {
+					prices[symbol] = ToDecimal(row.Current.String)
+					continue
+				}
+			}
+
+			// Add it to the list of symbols to be fetched from Yahoo:
+			toFetch = append(toFetch, symbol)
+		}
 	}
 
 	// Get current prices from Yahoo:
@@ -195,7 +203,7 @@ func (api *API) GetCurrentHourlyPrices(symbols ...string) (prices map[string]*bi
 			}
 
 			// Fill in the price map:
-			prices[quote.Symbol] = quote.Price
+			prices[quote.Symbol] = Decimal{Value: quote.Price}
 		}
 	}
 

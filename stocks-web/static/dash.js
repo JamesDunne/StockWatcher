@@ -40,6 +40,31 @@ function bindEvent(target, type, listener) {
         target.attachEvent('on' + type, listener);
 }
 
+// XMLHttpRequest helpers
+
+function get(url, before, after, success, error) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+
+    xhr.onreadystatechange = function () {
+        if (this.readyState != 4) return;
+        try {
+            if (this.status != 200) {
+                error(this.responseText);
+            } else {
+                success(this.responseText);
+            }
+        } catch (ex) { }
+
+		if (after) after();
+    };
+
+	if (before) before();
+    xhr.send();
+
+    return xhr;
+}
+
 function post(url, data, contentType, before, after, success, error) {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);
@@ -62,6 +87,10 @@ function post(url, data, contentType, before, after, success, error) {
     xhr.send(data);
 
     return xhr;
+}
+
+function getJson(url, success, error) {
+	return get(url, null, null, function(txt) { success(JSON.parse(txt)); }, function(txt) { error(JSON.parse(txt)); });
 }
 
 function postJson(url, json, success, error) {

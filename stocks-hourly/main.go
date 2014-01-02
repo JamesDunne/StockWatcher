@@ -86,9 +86,12 @@ func checkTStop(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
 	}
 
 	// Check if (price < t-stop):
+	log.Println("  Checking trailing stop...")
 	if sd.Detail.CurrPrice.Value.Cmp(sd.Detail.TStopPrice.Value) > 0 {
+		log.Printf("    current %v is not less than trailing stop %v\n", sd.Detail.CurrPrice, sd.Detail.TStopPrice)
 		return
 	}
+	log.Printf("    current %v is less than trailing stop %v!\n", sd.Detail.CurrPrice, sd.Detail.TStopPrice)
 
 	attemptEmailUser(api, user, sd, &sd.Stock.LastTimeTStop, "tstop")
 }
@@ -103,9 +106,12 @@ func checkBuyStop(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
 	}
 
 	// Check if (price < buy-stop):
+	log.Println("  Checking buy stop...")
 	if sd.Detail.CurrPrice.Value.Cmp(sd.Stock.BuyStopPrice.Value) > 0 {
+		log.Printf("    current %v is not less than buy stop %v\n", sd.Detail.CurrPrice, sd.Stock.BuyStopPrice)
 		return
 	}
+	log.Printf("    current %v is less than buy stop %v!\n", sd.Detail.CurrPrice, sd.Stock.BuyStopPrice)
 
 	attemptEmailUser(api, user, sd, &sd.Stock.LastTimeBuyStop, "buystop")
 }
@@ -120,9 +126,12 @@ func checkSellStop(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
 	}
 
 	// Check if (price > sell-stop):
+	log.Println("  Checking sell stop...")
 	if sd.Detail.CurrPrice.Value.Cmp(sd.Stock.SellStopPrice.Value) < 0 {
+		log.Printf("    current %v is not greater than sell stop %v\n", sd.Detail.CurrPrice, sd.Stock.SellStopPrice)
 		return
 	}
+	log.Printf("    current %v is greater than sell stop %v!\n", sd.Detail.CurrPrice, sd.Stock.SellStopPrice)
 
 	attemptEmailUser(api, user, sd, &sd.Stock.LastTimeSellStop, "sellstop")
 }
@@ -136,10 +145,14 @@ func checkRise(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
 	}
 
 	// chg% = ((CurrPrice / N1ClosePrice) - 1) * 100
+	log.Println("  Checking rise by %...")
 	chg := ((stocks.RatToFloat(sd.Detail.CurrPrice.Value) / stocks.RatToFloat(sd.Detail.N1ClosePrice.Value)) - 1.0) * 100.0
-	if chg < stocks.RatToFloat(sd.Stock.RisePercent.Value) {
+	rise := stocks.RatToFloat(sd.Stock.RisePercent.Value)
+	if chg < rise {
+		log.Printf("    change %.2f%% is not greater than rise %.2f%%\n", chg, rise)
 		return
 	}
+	log.Printf("    change %.2f%% is greater than rise %.2f%%!\n", chg, rise)
 
 	attemptEmailUser(api, user, sd, &sd.Stock.LastTimeRise, "rise")
 }
@@ -153,10 +166,14 @@ func checkFall(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
 	}
 
 	// chg% = ((CurrPrice / N1ClosePrice) - 1) * 100
+	log.Println("  Checking fall by %...")
 	chg := ((stocks.RatToFloat(sd.Detail.CurrPrice.Value) / stocks.RatToFloat(sd.Detail.N1ClosePrice.Value)) - 1.0) * 100.0
-	if chg > -stocks.RatToFloat(sd.Stock.FallPercent.Value) {
+	fall := -stocks.RatToFloat(sd.Stock.FallPercent.Value)
+	if chg > fall {
+		log.Printf("    change %.2f%% is not less than fall %.2f%%\n", chg, fall)
 		return
 	}
+	log.Printf("    change %.2f%% is less than fall %.2f%%!\n", chg, fall)
 
 	attemptEmailUser(api, user, sd, &sd.Stock.LastTimeFall, "fall")
 }
@@ -170,10 +187,15 @@ func checkBullBear(api *stocks.API, user *stocks.User, sd *stocks.StockDetail) {
 	}
 
 	// TODO: verify this logic.
+	log.Println("  Checking SMA for bullish/bearish...")
 	if sd.Detail.N2SMAPercent.Value < 0.0 && sd.Detail.N1SMAPercent.Value >= 0.0 {
+		log.Println("  stock turned bullish!")
 		attemptEmailUser(api, user, sd, &sd.Stock.LastTimeBullBear, "bull")
 	} else if sd.Detail.N2SMAPercent.Value >= 0.0 && sd.Detail.N1SMAPercent.Value < 0.0 {
+		log.Println("  stock turned bearish!")
 		attemptEmailUser(api, user, sd, &sd.Stock.LastTimeBullBear, "bear")
+	} else {
+		log.Println("  no change")
 	}
 }
 
@@ -287,7 +309,7 @@ func main() {
 
 	// Fetch current prices from Yahoo into the database:
 	log.Printf("Fetching current prices...\n")
-	api.GetCurrentHourlyPrices(symbols...)
+	api.GetCurrentHourlyPrices(true, symbols...)
 
 	for _, symbol := range symbols {
 		// Calculate details of owned stocks and their owners for this symbol:
@@ -327,24 +349,11 @@ func main() {
 
 			// Check notifications:
 			log.Println()
-
-			// Current price has fallen below trailing-stop price!
-			log.Println("  Checking trailing stop...")
 			checkTStop(api, user, &sd)
-
-			log.Println("  Checking buy stop...")
 			checkBuyStop(api, user, &sd)
-
-			log.Println("  Checking sell stop...")
 			checkSellStop(api, user, &sd)
-
-			log.Println("  Checking rise by %...")
 			checkRise(api, user, &sd)
-
-			log.Println("  Checking fall by %...")
 			checkFall(api, user, &sd)
-
-			log.Println("  Checking SMA for bullish/bearish...")
 			checkBullBear(api, user, &sd)
 		}
 	}

@@ -181,7 +181,7 @@ func TestRecordHistory2(t *testing.T) {
 func TestGetCurrentHourlyPrices(t *testing.T) {
 	// Fetch multiple times in a row to test fetch from DB vs. fetch from Yahoo (and store to DB):
 	for i := 1; i <= 10; i++ {
-		prices := api.GetCurrentHourlyPrices("MSFT", "AAPL")
+		prices := api.GetCurrentHourlyPrices(false, "MSFT", "AAPL")
 		fmt.Printf("prices [%d]: %+v\n", i, prices)
 	}
 }

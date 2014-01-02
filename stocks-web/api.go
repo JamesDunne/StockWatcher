@@ -162,6 +162,28 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 			_, watched := getDetailsSplit(api, apiuser.UserID)
 			rsp = watched
 
+		case "/stock/price":
+			// Get current price of stock:
+			symbol := r.URL.Query().Get("symbol")
+			if symbol == "" {
+				rspcode = 400
+				rsperr = fmt.Errorf("Required symbol parameter")
+				return
+			}
+			symbol = strings.Trim(strings.ToUpper(symbol), " ")
+
+			// Get the last hourly price for the symbol:
+			prices := api.GetCurrentHourlyPrices(true, symbol)
+
+			// Return the price value:
+			rsp = struct {
+				Symbol string
+				Price  stocks.Decimal
+			}{
+				Symbol: symbol,
+				Price:  prices[symbol],
+			}
+
 		default:
 			rspcode = 404
 			rsperr = fmt.Errorf("Invalid API url")

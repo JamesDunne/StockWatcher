@@ -33,8 +33,6 @@ type API struct {
 func (api *API) Today() time.Time           { return api.today }
 func (api *API) LastTradingDate() time.Time { return api.lastTradingDate }
 
-func (api *API) CurrentHour() time.Time { return time.Now().Truncate(time.Hour) }
-
 type UserID int64
 type StockID int64
 
