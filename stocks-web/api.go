@@ -9,6 +9,7 @@ import (
 	"net/http"
 	//"net/url"
 	//"time"
+	"strings"
 )
 
 // sqlite related imports:
@@ -205,9 +206,9 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 			// Convert JSON input into stock struct:
 			s := &stocks.Stock{
 				UserID:    apiuser.UserID,
-				Symbol:    tmp.Symbol,
-				BuyDate:   stocks.ToDateTime(dateFmt, tmp.BuyDate),
-				BuyPrice:  stocks.ToDecimal(tmp.BuyPrice),
+				Symbol:    strings.Trim(strings.ToUpper(tmp.Symbol), " "),
+				BuyDate:   stocks.ToDateTime(dateFmt, strings.Trim(tmp.BuyDate, " ")),
+				BuyPrice:  stocks.ToDecimal(strings.Trim(tmp.BuyPrice, " ")),
 				Shares:    tmp.Shares,
 				IsWatched: tmp.IsWatched,
 

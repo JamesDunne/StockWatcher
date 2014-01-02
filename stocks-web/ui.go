@@ -222,9 +222,11 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			// Data to be used by the template:
 			model := struct {
-				User *stocks.User
+				User  *stocks.User
+				Today time.Time
 			}{
-				User: apiuser,
+				User:  apiuser,
+				Today: time.Now(),
 			}
 
 			err := uiTmpl.ExecuteTemplate(w, "owned/add", model)
@@ -236,9 +238,11 @@ func uiHandler(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			// Data to be used by the template:
 			model := struct {
-				User *stocks.User
+				User  *stocks.User
+				Today time.Time
 			}{
-				User: apiuser,
+				User:  apiuser,
+				Today: time.Now(),
 			}
 
 			err := uiTmpl.ExecuteTemplate(w, "watched/add", model)
